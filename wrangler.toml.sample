@@ -1,0 +1,16 @@
+name = "cf-url-shortener"
+main = "src/index.ts"
+compatibility_date = "2025-11-02"
+
+//這裡會透過終端機產生 等等複製id到這裡
+kv_namespaces = [
+  { binding = "LINKS", id = "XXXXXXXXXXXXX"}. 
+]
+
+[[routes]]
+pattern = "s.google.com/*"
+zone_name = "google.com"
+
+[vars]
+AUTHOR = "Your-Name"
+CONTACT = "your@gmail.com"
