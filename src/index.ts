@@ -181,6 +181,11 @@ th[data-sort]{cursor:pointer}
           <tbody id="list-body"></tbody>
         </table>
       </div>
+      <div class="mt-3 flex items-center gap-2">
+        <button id="prev" class="btn disabled:opacity-50" disabled>上一頁</button>
+        <button id="next" class="btn disabled:opacity-50" disabled>下一頁</button>
+        <span id="page-info" class="text-slate-600 text-sm"></span>
+      </div>
     </section>
   </div>
 
@@ -189,9 +194,12 @@ const base = location.origin;
 const $ = (s)=>document.querySelector(s);
 const form = $("#create-form"), msg=$("#create-msg"), tbody=$("#list-body");
 const btnRefresh=$("#refresh"), listCount=$("#list-count");
+const btnPrev=$("#prev"), btnNext=$("#next"), pageInfo=$("#page-info");
 
 let allLinks = [], countdownTimer = null;
 let currentSort = { key: 'created', dir: 'asc' };
+let currentPage = 0;
+const PAGE_SIZE = 100;
 
 const fmt = (sec)=>{
   if (sec == null) return "N/A";
@@ -262,8 +270,17 @@ function renderList() {
     return currentSort.dir === 'asc' ? result : -result;
   });
 
+  // 分頁計算
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  if (currentPage >= totalPages && totalPages > 0) currentPage = totalPages - 1;
+  if (currentPage < 0) currentPage = 0;
+  
+  const startIdx = currentPage * PAGE_SIZE;
+  const endIdx = Math.min(startIdx + PAGE_SIZE, filtered.length);
+  const pageData = filtered.slice(startIdx, endIdx);
+
   tbody.innerHTML = "";
-  filtered.forEach(item => {
+  pageData.forEach(item => {
     const badgeClass = item.status==="active" ? "green" :
                        item.status==="expiring" ? "amber" :
                        item.status==="invalid" ? "gray" : "red";
@@ -288,7 +305,12 @@ function renderList() {
     tbody.appendChild(tr);
   });
 
-  listCount.textContent = \`共 \${allLinks.length} 筆，顯示 \${filtered.length} 筆\`;
+  // 更新分頁資訊
+  listCount.textContent = \`共 \${allLinks.length} 筆，篩選後 \${filtered.length} 筆\`;
+  pageInfo.textContent = \`第 \${currentPage + 1} / \${Math.max(1, totalPages)} 頁 (本頁 \${pageData.length} 筆)\`;
+  
+  btnPrev.disabled = currentPage === 0;
+  btnNext.disabled = currentPage >= totalPages - 1 || totalPages === 0;
 
   tbody.querySelectorAll("button[data-code]:not([disabled])").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
@@ -333,12 +355,16 @@ async function loadAllLinks(cursor = null) {
 
 async function init() {
   allLinks = [];
+  currentPage = 0; // 重置到第一頁
   await loadAllLinks();
   renderList();
 }
 
 document.querySelectorAll("#filters input").forEach(el => {
-  el.addEventListener("change", renderList);
+  el.addEventListener("change", () => {
+    currentPage = 0; // 篩選時重置到第一頁
+    renderList();
+  });
 });
 
 document.querySelectorAll("th[data-sort]").forEach(th => {
@@ -350,8 +376,21 @@ document.querySelectorAll("th[data-sort]").forEach(th => {
       currentSort.key = key;
       currentSort.dir = 'asc';
     }
+    // 排序時保持在當前頁面
     renderList();
   });
+});
+
+btnPrev.addEventListener("click", () => {
+  if (currentPage > 0) {
+    currentPage--;
+    renderList();
+  }
+});
+
+btnNext.addEventListener("click", () => {
+  currentPage++;
+  renderList();
 });
 
 form.addEventListener("submit", createLink);
@@ -414,7 +453,7 @@ export default {
       });
     }
 
-    // 僅 /admin 提供管理頁（不再把 "/" 當後台）
+    // 僅 /admin 提供管理頁
     if (req.method === "GET" && path === "admin") {
       return new Response(ADMIN_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
