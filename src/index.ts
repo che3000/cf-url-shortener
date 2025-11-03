@@ -26,7 +26,7 @@ type KVValue = {
   url: string;
   created: number;     // epoch seconds
   ttl?: number;        // seconds (undefined = 永久)
-  valid?: boolean;     // soft delete: false = 作廢
+  valid?: boolean;     // soft delete: false = 註銷
 };
 
 type KVListResult = {
@@ -103,7 +103,7 @@ const ADMIN_HTML = `<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>URL Shortener Admin</title>
+<title>URL Shortener Admin Page</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
@@ -125,7 +125,7 @@ const ADMIN_HTML = `<!doctype html>
   <div class="max-w-6xl mx-auto p-6 space-y-6">
     <header>
       <h1 class="text-2xl font-semibold tracking-tight">URL Shortener Admin</h1>
-      <p class="text-slate-600">已由 Cloudflare Access 保護（/admin 與 /api/*）</p>
+      <p class="text-slate-600">已由 Cloudflare Access 保護</p>
     </header>
 
     <section class="card p-5">
@@ -140,7 +140,7 @@ const ADMIN_HTML = `<!doctype html>
           <input id="ttlHours" type="number" min="1" placeholder="24" class="w-full border rounded-lg px-3 py-2"/>
         </div>
         <div>
-          <label class="block text-sm text-slate-600 mb-1">自訂短碼 (可空白)</label>
+          <label class="block text-sm text-slate-600 mb-1">自訂短網址 (可空白)</label>
           <input id="code" type="text" placeholder="my-link" class="w-full border rounded-lg px-3 py-2"/>
         </div>
         <div class="md:col-span-4">
@@ -152,7 +152,7 @@ const ADMIN_HTML = `<!doctype html>
 
     <section class="card p-5">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-medium">短碼清單</h2>
+        <h2 class="text-lg font-medium">短網址清單</h2>
         <div class="text-sm text-slate-600 flex items-center gap-2">
           <button id="refresh" class="btn">重新整理 <span class="kbd">R</span></button>
         </div>
@@ -247,6 +247,18 @@ async function loadList(reset=false){
 
     const remainAttrs = (item.remaining == null) ? "" : \`data-remaining="\${item.remaining}" data-start="\${Date.now()}"\`;
 
+    const isExpired = item.status === "expired";
+    const isInvalid = item.status === "invalid";
+
+    const actionLabel = isExpired ? "已過期" :
+      isInvalid ? "恢復有效" : "註銷";
+
+    const actionAttrs =
+      isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : " ";
+
+    const actionClasses = isExpired ? "btn disabled:opacity-50" :
+      isInvalid ? "btn btn-primary" : "btn btn-red";
+
     const tr = document.createElement("tr");
     tr.innerHTML = \`
       <td class="border px-2 py-1"><a class="link" href="\${base}/\${item.code}" target="_blank">\${item.code}</a></td>
@@ -256,7 +268,7 @@ async function loadList(reset=false){
       <td class="border px-2 py-1"><span class="remain font-mono" \${remainAttrs}>\${item.remaining==null ? "N/A" : ""}</span></td>
       <td class="border px-2 py-1"><span class="badge \${badgeClass}">\${item.status}</span></td>
       <td class="border px-2 py-1 text-center">
-        <button data-code="\${item.code}" class="btn">\${item.status==="invalid" ? "恢復有效" : "作廢"}</button>
+        <button data-code="\${item.code}" class="\${actionClasses}" \${actionAttrs}>\${actionLabel}</button>
       </td>\`;
     tbody.appendChild(tr);
   });
@@ -267,7 +279,7 @@ async function loadList(reset=false){
   cursor = j.cursor || null;
 
   // 綁 soft toggle
-  tbody.querySelectorAll("button[data-code]").forEach(btn=>{
+  tbody.querySelectorAll("button[data-code]:not([disabled])").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
       const code = btn.getAttribute("data-code");
       const action = btn.textContent?.includes("恢復") ? "restore" : "invalidate";
@@ -430,7 +442,7 @@ export default {
       return json({ items, cursor: list.cursor || null, list_complete: list.list_complete });
     }
 
-    // 作廢/恢復：PATCH /api/links/:code  { action: "invalidate" | "restore" }
+    //註銷/恢復：PATCH /api/links/:code  { action: "invalidate" | "restore" }
     if (req.method === "PATCH" && path.startsWith("api/links/")) {
       const code = path.split("/").pop() || "";
       if (!code) return json({ error: "invalid code" }, 400);
