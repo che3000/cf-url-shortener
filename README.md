@@ -222,7 +222,7 @@ CONTACT = "your@email.com"
 
 ## 📜 開源授權
 
-MIT License — 可自由商用、改寫、再發布
+GNU General Public License v3
 
 ---
 
