@@ -89,7 +89,7 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 function computeMeta(v: KVValue | null) {
   if (!v) return { expiresAt: null, status: "expired" as const, remaining: null };
   if (v.valid === false) return { expiresAt: null, status: "invalid" as const, remaining: null };
-  if (!v.ttl) return { expiresAt: null, status: "active" as const, remaining: null }; // 永久
+  if (!v.ttl) return { expiresAt: null, status: "active" as const, remaining: null }; 
   const exp = v.created + v.ttl;
   const now = nowSec();
   const remain = exp - now;
@@ -98,7 +98,7 @@ function computeMeta(v: KVValue | null) {
   return { expiresAt: exp, status: "active" as const, remaining: remain };
 }
 
-/* ---------- Admin UI (shadcn 風格等價，移除「前往根頁」按鈕) ---------- */
+/* ---------- Admin UI ---------- */
 const ADMIN_HTML = `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -119,12 +119,13 @@ const ADMIN_HTML = `<!doctype html>
 .badge.gray{background:#64748b22;color:#0f172a;border:1px solid #64748b55}
 .link{color:#1d4ed8;text-decoration:underline;text-underline-offset:2px}
 .kbd{border:1px solid rgb(203 213 225);border-bottom-width:2px;border-radius:.4rem;padding:.15rem .4rem;font-size:.75rem;background:#f8fafc}
+th[data-sort]{cursor:pointer}
 </style>
 </head>
 <body class="bg-slate-50">
   <div class="max-w-6xl mx-auto p-6 space-y-6">
     <header>
-      <h1 class="text-2xl font-semibold tracking-tight">URL Shortener Admin</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">URL Shortener Admin Page</h1>
       <p class="text-slate-600">已由 Cloudflare Access 保護</p>
     </header>
 
@@ -153,7 +154,14 @@ const ADMIN_HTML = `<!doctype html>
     <section class="card p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-medium">短網址清單</h2>
+        <div id="filters" class="flex items-center gap-4 text-sm">
+          <label class="flex items-center gap-1.5"><input type="checkbox" value="active" checked> 有效</label>
+          <label class="flex items-center gap-1.5"><input type="checkbox" value="expiring" checked> 即將到期</label>
+          <label class="flex items-center gap-1.5"><input type="checkbox" value="expired"> 已過期</label>
+          <label class="flex items-center gap-1.5"><input type="checkbox" value="invalid" checked> 無效</label>
+        </div>
         <div class="text-sm text-slate-600 flex items-center gap-2">
+          <span id="list-count"></span>
           <button id="refresh" class="btn">重新整理 <span class="kbd">R</span></button>
         </div>
       </div>
@@ -161,22 +169,17 @@ const ADMIN_HTML = `<!doctype html>
         <table class="min-w-full border text-sm">
           <thead class="bg-slate-100">
             <tr>
-              <th class="border px-2 py-1 text-left">Code</th>
-              <th class="border px-2 py-1 text-left">URL</th>
-              <th class="border px-2 py-1 text-left">建立時間</th>
-              <th class="border px-2 py-1 text-left">到期時間</th>
-              <th class="border px-2 py-1 text-left">剩餘</th>
-              <th class="border px-2 py-1 text-left">狀態</th>
+              <th data-sort="code" class="border px-2 py-1 text-left">Code ⇅</th>
+              <th data-sort="url" class="border px-2 py-1 text-left">URL ⇅</th>
+              <th data-sort="created" class="border px-2 py-1 text-left">建立時間 ⇅</th>
+              <th data-sort="expiresAt" class="border px-2 py-1 text-left">到期時間 ⇅</th>
+              <th data-sort="remaining" class="border px-2 py-1 text-left">剩餘 ⇅</th>
+              <th data-sort="status" class="border px-2 py-1 text-left">狀態 ⇅</th>
               <th class="border px-2 py-1 text-center">動作</th>
             </tr>
           </thead>
           <tbody id="list-body"></tbody>
         </table>
-      </div>
-      <div class="mt-3 flex items-center gap-2">
-        <button id="prev" class="btn disabled:opacity-50" disabled>上一頁</button>
-        <button id="next" class="btn disabled:opacity-50" disabled>下一頁</button>
-        <span id="page-info" class="text-slate-600 text-sm"></span>
       </div>
     </section>
   </div>
@@ -185,9 +188,10 @@ const ADMIN_HTML = `<!doctype html>
 const base = location.origin;
 const $ = (s)=>document.querySelector(s);
 const form = $("#create-form"), msg=$("#create-msg"), tbody=$("#list-body");
-const btnPrev=$("#prev"), btnNext=$("#next"), pageInfo=$("#page-info"), btnRefresh=$("#refresh");
+const btnRefresh=$("#refresh"), listCount=$("#list-count");
 
-let cursor=null, prevCursors=[], countdownTimer=null;
+let allLinks = [], countdownTimer = null;
+let currentSort = { key: 'created', dir: 'asc' };
 
 const fmt = (sec)=>{
   if (sec == null) return "N/A";
@@ -197,12 +201,11 @@ const fmt = (sec)=>{
   if (m) return \`\${m}m \${r}s\`;
   return \`\${r}s\`;
 };
-const fmtTime = (t)=> t ? new Date(t*1000).toLocaleString() : "不過期";
+const fmtTime = (t)=> t ? new Date(t*1000).toLocaleString() : "永久";
 
 function startCountdown(){
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(()=>{
-    // 沒有 data-remaining 屬性的元素 = 永久
     document.querySelectorAll(".remain").forEach(el=>{
       const hasAttr = el.hasAttribute("data-remaining");
       if (!hasAttr) { el.textContent = "N/A"; return; }
@@ -228,36 +231,48 @@ async function createLink(e){
     if (!res.ok) throw new Error(j.error || "建立失敗");
     msg.textContent = "✅ 成功：" + j.short;
     form.reset();
-    await loadList(true); // 自動刷新
+    
+    // Optimistic Update
+    const existingIndex = allLinks.findIndex(item => item.code === j.code);
+    if (existingIndex > -1) {
+      allLinks[existingIndex] = j;
+    } else {
+      allLinks.push(j);
+    }
+    renderList();
+
   }catch(err){ msg.textContent = "❌ " + err.message; }
 }
 
-async function loadList(reset=false){
-  if (reset){ cursor=null; prevCursors=[]; }
-  const params = new URLSearchParams({ limit:"100", expand:"1" });
-  if (cursor) params.set("cursor", cursor);
-  const res = await fetch(base + "/api/links?" + params.toString());
-  const j = await res.json();
-  tbody.innerHTML = "";
+function renderList() {
+  const activeFilters = Array.from(document.querySelectorAll("#filters input:checked")).map(el => el.value);
+  
+  let filtered = allLinks.filter(item => activeFilters.includes(item.status));
 
-  (j.items||[]).forEach(item=>{
+  filtered.sort((a, b) => {
+    let valA = a[currentSort.key];
+    let valB = b[currentSort.key];
+    if (valA === null || valA === undefined) valA = -Infinity;
+    if (valB === null || valB === undefined) valB = -Infinity;
+
+    let result = 0;
+    if (valA < valB) result = -1;
+    if (valA > valB) result = 1;
+    
+    return currentSort.dir === 'asc' ? result : -result;
+  });
+
+  tbody.innerHTML = "";
+  filtered.forEach(item => {
     const badgeClass = item.status==="active" ? "green" :
                        item.status==="expiring" ? "amber" :
                        item.status==="invalid" ? "gray" : "red";
-
     const remainAttrs = (item.remaining == null) ? "" : \`data-remaining="\${item.remaining}" data-start="\${Date.now()}"\`;
-
     const isExpired = item.status === "expired";
     const isInvalid = item.status === "invalid";
-
-    const actionLabel = isExpired ? "已過期" :
-      isInvalid ? "恢復有效" : "註銷";
-
-    const actionAttrs =
-      isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : " ";
-
-    const actionClasses = isExpired ? "btn disabled:opacity-50" :
-      isInvalid ? "btn btn-primary" : "btn btn-red";
+    const actionLabel = isExpired ? "已過期" : isInvalid ? "恢復有效" : "註銷";
+    const actionAttrs = isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : "";
+    const actionClasses = isExpired ? "btn disabled:opacity-50" : isInvalid ? "btn btn-primary" : "btn";
 
     const tr = document.createElement("tr");
     tr.innerHTML = \`
@@ -273,12 +288,8 @@ async function loadList(reset=false){
     tbody.appendChild(tr);
   });
 
-  btnPrev.disabled = prevCursors.length===0;
-  btnNext.disabled = !j.cursor;
-  pageInfo.textContent = \`本頁 \${j.items?.length || 0} 筆\`;
-  cursor = j.cursor || null;
+  listCount.textContent = \`共 \${allLinks.length} 筆，顯示 \${filtered.length} 筆\`;
 
-  // 綁 soft toggle
   tbody.querySelectorAll("button[data-code]:not([disabled])").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
       const code = btn.getAttribute("data-code");
@@ -289,24 +300,69 @@ async function loadList(reset=false){
         body: JSON.stringify({ action })
       });
       if (!res.ok){ alert("操作失敗"); return; }
-      await loadList(true); // 自動刷新
+      const updatedItem = await res.json();
+      
+      // Optimistic update for toggle
+      const idx = allLinks.findIndex(i => i.code === code);
+      if(idx > -1 && updatedItem.status) {
+        allLinks[idx].status = updatedItem.status;
+        allLinks[idx].valid = updatedItem.valid;
+      }
+      renderList();
     });
   });
 
   startCountdown();
 }
 
-form.addEventListener("submit", createLink);
-btnRefresh.addEventListener("click", ()=>loadList(true));
-document.addEventListener("keydown", e=>{ if(e.key==="r"||e.key==="R") loadList(true); });
-btnNext.addEventListener("click", async ()=>{ if(cursor) prevCursors.push(cursor); await loadList(false); });
-btnPrev.addEventListener("click", async ()=>{ if(prevCursors.length===0) return; cursor = prevCursors.pop(); await loadList(false); });
+async function loadAllLinks(cursor = null) {
+  const params = new URLSearchParams({ limit: "1000", expand: "1" });
+  if (cursor) params.set("cursor", cursor);
+  
+  const res = await fetch(base + "/api/links?" + params.toString());
+  const j = await res.json();
+  
+  if (j.items) {
+    allLinks.push(...j.items);
+  }
+  
+  if (!j.list_complete && j.cursor) {
+    await loadAllLinks(j.cursor);
+  }
+}
 
-loadList(true);
+async function init() {
+  allLinks = [];
+  await loadAllLinks();
+  renderList();
+}
+
+document.querySelectorAll("#filters input").forEach(el => {
+  el.addEventListener("change", renderList);
+});
+
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.getAttribute('data-sort');
+    if (currentSort.key === key) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.key = key;
+      currentSort.dir = 'asc';
+    }
+    renderList();
+  });
+});
+
+form.addEventListener("submit", createLink);
+btnRefresh.addEventListener("click", init);
+document.addEventListener("keydown", e=>{ if(e.key.toLowerCase()==="r") init(); });
+
+init();
 </script>
 </body></html>`;
 
-/* 無效短碼頁：不提供任何可導向 admin 的連結 */
+/* 無效短碼頁 */
 const INVALID_HTML = (host: string, code: string) => `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -320,7 +376,8 @@ const INVALID_HTML = (host: string, code: string) => `<!doctype html>
     <div class="max-w-lg w-full bg-white border rounded-2xl shadow p-6 text-center">
       <div class="text-5xl mb-3">🔗</div>
       <h1 class="text-xl font-semibold mb-2">短網址無效或已過期</h1>
-      <p class="text-slate-600">代碼 <code class="px-2 py-1 bg-slate-100 rounded border">${code}</code> 無法使用。</p>
+      <p class="text-slate-600">短網址 <code class="px-2 py-1 bg-slate-100 rounded border">${code}</code> 無法使用。</p>
+      <p class="text-slate-600">請聯繫給你連結的人。</p>
     </div>
   </div>
 </body>
@@ -352,7 +409,7 @@ export default {
       return new Response(FAVICON_SVG, {
         headers: {
           "content-type": "image/svg+xml; charset=utf-8",
-          "cache-control": "public, max-age=86400" // 可調整
+          "cache-control": "public, max-age=86400" 
         }
       });
     }
@@ -376,8 +433,26 @@ export default {
       const longUrl = normalizeUrl(body.url);
       if (!longUrl) return json({ error: "invalid url" }, 400);
 
-      let code = body.code || genCode(6);
-      if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code" }, 400);
+      let code = body.code?.trim();
+
+      if (code) { // 使用自訂 code
+        if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code format" }, 400);
+        const existing = await env.LINKS.get(code);
+        if (existing) return json({ error: "code already in use" }, 409);
+      } else { // 自動產生 code
+        let retries = 5;
+        let unique = false;
+        do {
+          code = genCode(6);
+          const existing = await env.LINKS.get(code);
+          if (!existing) {
+            unique = true;
+            break;
+          }
+          retries--;
+        } while (retries > 0);
+        if (!unique) return json({ error: "failed to generate a unique code" }, 500);
+      }
 
       let ttlSec: number | undefined;
       if (body.ttl_hours !== undefined && String(body.ttl_hours) !== "") {
