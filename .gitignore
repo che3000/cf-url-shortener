@@ -1,4 +1,8 @@
 /.wrangler/
 /node_modules/
+/public/
+
+# Generated files
+src/styles-inline.ts
 
 wrangler.toml
