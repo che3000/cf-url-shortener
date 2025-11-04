@@ -166,7 +166,7 @@ table{font-size:12px}
 				</div>
 				<div>
 					<label class="block text-sm text-slate-600 mb-1">廣告秒數</label>
-					<input id="interstitialSeconds" type="number" min="1" placeholder="5" class="w-full border rounded-lg px-3 py-2"/>
+					<input id="interstitialSeconds" type="number" min="1" placeholder="5" class="w-full border rounded-lg px-3 py-2" disabled/>
 				</div>
 				<div class="sm:col-span-2 md:col-span-4">
 					<button class="btn btn-primary w-full sm:w-auto">建立</button>
@@ -222,7 +222,7 @@ table{font-size:12px}
 	<!-- 編輯廣告設定的彈出式對話框 -->
 	<div id="edit-modal" class="modal" style="display:none">
 		<div class="modal-content">
-			<h3 class="text-lg font-semibold mb-4">編輯插頁廣告設定</h3>
+			<h3 class="text-lg font-semibold mb-4">編輯短網址設定</h3>
 			<div class="space-y-4">
 				<div>
 					<label class="flex items-center gap-2">
@@ -234,6 +234,11 @@ table{font-size:12px}
 					<label class="block text-sm text-slate-600 mb-1">廣告秒數</label>
 					<input type="number" id="modal-interstitial-seconds" min="1" 
 						class="w-full border rounded-lg px-3 py-2" placeholder="5">
+				</div>
+				<div>
+					<label class="block text-sm text-slate-600 mb-1">有效小時 (留空=永久，更新後會從現在開始計算延長小時)</label>
+					<input type="number" id="modal-ttl-hours" min="1" 
+						class="w-full border rounded-lg px-3 py-2" placeholder="留空表示永久有效">
 				</div>
 			</div>
 			<div class="mt-6 flex gap-2 justify-end">
@@ -252,6 +257,7 @@ const btnPrev=$("#prev"), btnNext=$("#next"), pageInfo=$("#page-info");
 const editModal = $("#edit-modal");
 const modalEnabled = $("#modal-interstitial-enabled");
 const modalSeconds = $("#modal-interstitial-seconds");
+const modalTtlHours = $("#modal-ttl-hours");
 const modalCancel = $("#modal-cancel");
 const modalSave = $("#modal-save");
 
@@ -341,18 +347,24 @@ async function createLink(e){
 	try{
 		const ttlHoursStr = $("#ttlHours").value.trim();
 		const ttl_hours = ttlHoursStr ? Number(ttlHoursStr) : undefined;
+		const useInterstitial = $("#useInterstitial").checked;
+		const interstitialSecondsValue = $("#interstitialSeconds").value;
+		
 		const body = {
 			url: $("#url").value.trim(),
 			ttl_hours,
 			code: $("#code").value.trim() || undefined,
-			interstitial_enabled: $("#useInterstitial").checked ? true : false,
-			interstitial_seconds: $("#interstitialSeconds").value ? Number($("#interstitialSeconds").value) : undefined
+			interstitial_enabled: useInterstitial,
+			interstitial_seconds: useInterstitial && interstitialSecondsValue ? Number(interstitialSecondsValue) : 0
 		};
 		const res = await fetch(base + "/api/links", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) });
 		const j = await res.json();
 		if (!res.ok) throw new Error(j.error || "建立失敗");
 		msg.textContent = "✅ 成功：" + j.short;
 		form.reset();
+		
+		// 重置後要再次禁用廣告秒數輸入框
+		$("#interstitialSeconds").disabled = true;
 
 		// Optimistic Update
 		const existingIndex = allLinks.findIndex(item => item.code === j.code);
@@ -444,7 +456,7 @@ function renderList() {
 
 			<!-- ★ 插頁廣告顯示 -->
 			<td class="border px-1 sm:px-2 py-1 text-center xl:table-cell" style="display: none;">
-				\${item.interstitial_enabled ? '✓' : '✗'}
+				\${item.interstitial_enabled ? '✅' : '❌'}
 			</td>
 
 			<!-- ★ 秒數顯示 -->
@@ -493,11 +505,24 @@ function renderList() {
 			
 			editingCode = code;
 			modalEnabled.checked = item.interstitial_enabled === true;
-			modalSeconds.value = item.interstitial_seconds != null ? item.interstitial_seconds : 5;
+			
+			// 設定廣告秒數：如果有值且大於0則顯示，否則顯示5（當啟用時）或空白（未啟用時）
+			if (item.interstitial_seconds != null && item.interstitial_seconds > 0) {
+				modalSeconds.value = item.interstitial_seconds;
+			} else {
+				modalSeconds.value = item.interstitial_enabled ? 5 : "";
+			}
+			
+			// 設定 TTL（將秒數轉換為小時）
+			if (item.ttl != null && item.ttl > 0) {
+				modalTtlHours.value = Math.round(item.ttl / 3600);
+			} else {
+				modalTtlHours.value = "";
+			}
 			
 			// 根據核取方塊狀態決定秒數輸入框是否可用
 			modalSeconds.disabled = !modalEnabled.checked;
-			if (modalEnabled.checked && !modalSeconds.value) {
+			if (modalEnabled.checked && (!modalSeconds.value || Number(modalSeconds.value) === 0)) {
 				modalSeconds.value = 5;
 			}
 			
@@ -536,7 +561,7 @@ function renderList() {
 modalEnabled.addEventListener("change", () => {
 	if (modalEnabled.checked) {
 		modalSeconds.disabled = false;
-		if (!modalSeconds.value) {
+		if (!modalSeconds.value || Number(modalSeconds.value) === 0) {
 			modalSeconds.value = 5;
 		}
 	} else {
@@ -554,15 +579,22 @@ modalSave.addEventListener("click", async () => {
 	
 	const enabled = modalEnabled.checked;
 	const seconds = modalSeconds.value ? Number(modalSeconds.value) : null;
+	const ttlHours = modalTtlHours.value ? Number(modalTtlHours.value) : null;
 	
 	if (enabled && (!seconds || seconds < 1)) {
 		alert("啟用廣告時，秒數必須大於等於 1");
 		return;
 	}
 	
+	if (ttlHours !== null && ttlHours < 1) {
+		alert("有效小時必須大於等於 1，或留空表示永久有效");
+		return;
+	}
+	
 	const payload = {
 		interstitial_enabled: enabled,
-		interstitial_seconds: enabled ? seconds : 0  // 未啟用時設為 0
+		interstitial_seconds: enabled ? seconds : 0,  // 未啟用時設為 0
+		ttl_hours: ttlHours  // null 表示永久
 	};
 	
 	try {
@@ -582,6 +614,11 @@ modalSave.addEventListener("click", async () => {
 		if (idx > -1) {
 			allLinks[idx].interstitial_enabled = updated.interstitial_enabled;
 			allLinks[idx].interstitial_seconds = updated.interstitial_seconds;
+			// 更新 TTL 相關資訊
+			if (updated.ttl !== undefined) allLinks[idx].ttl = updated.ttl;
+			if (updated.expiresAt !== undefined) allLinks[idx].expiresAt = updated.expiresAt;
+			if (updated.status !== undefined) allLinks[idx].status = updated.status;
+			if (updated.remaining !== undefined) allLinks[idx].remaining = updated.remaining;
 		}
 		
 		editModal.style.display = "none";
@@ -659,6 +696,20 @@ btnNext.addEventListener("click", () => {
 form.addEventListener("submit", createLink);
 btnRefresh.addEventListener("click", init);
 document.addEventListener("keydown", e=>{ if(e.key.toLowerCase()==="r") init(); });
+
+// 監聽建立表單中的插頁廣告勾選
+$("#useInterstitial").addEventListener("change", () => {
+	const interstitialSecondsInput = $("#interstitialSeconds");
+	if ($("#useInterstitial").checked) {
+		interstitialSecondsInput.disabled = false;
+		if (!interstitialSecondsInput.value || Number(interstitialSecondsInput.value) === 0) {
+			interstitialSecondsInput.value = 5;
+		}
+	} else {
+		interstitialSecondsInput.disabled = true;
+		interstitialSecondsInput.value = "";
+	}
+});
 
 // 監聽視窗大小變化
 window.addEventListener('resize', () => {
@@ -814,11 +865,14 @@ export default {
 				if (!unique) return json({ error: "failed to generate a unique code" }, 500);
 			}
 
+			// 處理插頁廣告秒數：如果啟用但沒有傳秒數，預設為5；未啟用則設為0
+			let interstitialSeconds = 0;
 			if (body.interstitial_enabled) {
-				body.interstitial_seconds = 5;
-			}
-			else {
-				body.interstitial_seconds = 0;
+				if (body.interstitial_seconds && Number(body.interstitial_seconds) > 0) {
+					interstitialSeconds = Number(body.interstitial_seconds);
+				} else {
+					interstitialSeconds = 5;
+				}
 			}
 
 			let ttlSec: number | undefined;
@@ -838,7 +892,7 @@ export default {
 				ttl: ttlSec,
 				valid: true,
 				interstitial_enabled: String(body.interstitial_enabled ?? "") === "true" || body.interstitial_enabled === true,
-				interstitial_seconds: body.interstitial_seconds != null ? Math.max(0, Number(body.interstitial_seconds)) : undefined,
+				interstitial_seconds: interstitialSeconds,
 			};
 			await env.LINKS.put(code, JSON.stringify(payload));
 			const meta = computeMeta(payload);
@@ -897,7 +951,7 @@ export default {
 			return json({ items, cursor: list.cursor || null, list_complete: list.list_complete });
 		}
 
-		// 註銷/恢復 + 更新插頁廣告設定：PATCH /api/links/:code
+		// 註銷/恢復 + 更新插頁廣告設定 + 更新到期時間：PATCH /api/links/:code
 		if (req.method === "PATCH" && path.startsWith("api/links/")) {
 			const code = path.split("/").pop() || "";
 			if (!code) return json({ error: "invalid code" }, 400);
@@ -913,6 +967,7 @@ export default {
 				action?: "invalidate" | "restore";
 				interstitial_enabled?: boolean | string;
 				interstitial_seconds?: number | string | null;
+				ttl_hours?: number | string | null;
 			};
 
 			// 1) 作廢/恢復
@@ -953,9 +1008,24 @@ export default {
 				}
 			}
 
+			// 3) 更新 TTL（到期時間）
+			if (typeof body.ttl_hours !== "undefined") {
+				if (body.ttl_hours === null || body.ttl_hours === "") {
+					// 設為永久
+					v.ttl = undefined;
+				} else {
+					const hours = Number(body.ttl_hours);
+					if (!Number.isFinite(hours) || hours <= 0) {
+						return json({ error: "invalid ttl_hours" }, 400);
+					}
+					// 更新 TTL 時，從現在開始重新計算
+					v.ttl = Math.round(hours * 3600);
+					v.created = nowSec();  // 重設建立時間為現在
+				}
+			}
+
 			await env.LINKS.put(code, JSON.stringify(v));
 			const meta = computeMeta(v);
-
 			return json({
 				ok: true,
 				code,
@@ -963,10 +1033,11 @@ export default {
 				valid: v.valid !== false,
 				interstitial_enabled: v.interstitial_enabled ?? false,
 				interstitial_seconds: (v.interstitial_seconds ?? null),
+				ttl: v.ttl ?? null,
+				expiresAt: meta.expiresAt,
+				remaining: meta.remaining,
 			});
-		}
-
-		if (req.method === "OPTIONS") {
+		} if (req.method === "OPTIONS") {
 			return new Response(null, {
 				status: 204,
 				headers: {
