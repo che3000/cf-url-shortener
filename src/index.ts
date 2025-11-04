@@ -170,7 +170,7 @@ th[data-sort]{cursor:pointer}
           <thead class="bg-slate-100">
             <tr>
               <th data-sort="code" class="border px-2 py-1 text-left">短網址 ⇅</th>
-              <th data-sort="url" class="border px-2 py-1 text-left">原始連結 ⇅</th>
+              <th data-sort="url" class="border px-2 py-1 text-left">原始網址 ⇅</th>
               <th data-sort="created" class="border px-2 py-1 text-left">建立時間 ⇅</th>
               <th data-sort="expiresAt" class="border px-2 py-1 text-left">到期時間 ⇅</th>
               <th data-sort="remaining" class="border px-2 py-1 text-left">剩餘時間 ⇅</th>
