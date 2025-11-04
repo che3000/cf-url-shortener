@@ -169,11 +169,11 @@ th[data-sort]{cursor:pointer}
         <table class="min-w-full border text-sm">
           <thead class="bg-slate-100">
             <tr>
-              <th data-sort="code" class="border px-2 py-1 text-left">Code ⇅</th>
-              <th data-sort="url" class="border px-2 py-1 text-left">URL ⇅</th>
+              <th data-sort="code" class="border px-2 py-1 text-left">短網址 ⇅</th>
+              <th data-sort="url" class="border px-2 py-1 text-left">原始連結 ⇅</th>
               <th data-sort="created" class="border px-2 py-1 text-left">建立時間 ⇅</th>
               <th data-sort="expiresAt" class="border px-2 py-1 text-left">到期時間 ⇅</th>
-              <th data-sort="remaining" class="border px-2 py-1 text-left">剩餘 ⇅</th>
+              <th data-sort="remaining" class="border px-2 py-1 text-left">剩餘時間 ⇅</th>
               <th data-sort="status" class="border px-2 py-1 text-left">狀態 ⇅</th>
               <th class="border px-2 py-1 text-center">動作</th>
             </tr>
@@ -216,7 +216,7 @@ function startCountdown(){
   countdownTimer = setInterval(()=>{
     document.querySelectorAll(".remain").forEach(el=>{
       const hasAttr = el.hasAttribute("data-remaining");
-      if (!hasAttr) { el.textContent = "N/A"; return; }
+      if (!hasAttr) return; // 沒有 data-remaining 屬性就不更新（保持原有文字，如「已過期」或「N/A」）
       const remain = Number(el.getAttribute("data-remaining"));
       const start = Number(el.getAttribute("data-start")) || 0;
       if (!Number.isFinite(remain)) { el.textContent = "—"; return; }
@@ -284,9 +284,23 @@ function renderList() {
     const badgeClass = item.status==="active" ? "green" :
                        item.status==="expiring" ? "amber" :
                        item.status==="invalid" ? "gray" : "red";
-    const remainAttrs = (item.remaining == null) ? "" : \`data-remaining="\${item.remaining}" data-start="\${Date.now()}"\`;
     const isExpired = item.status === "expired";
     const isInvalid = item.status === "invalid";
+    
+    // 剩餘時間顯示邏輯
+    let remainDisplay = "";
+    let remainAttrs = "";
+    if (isExpired) {
+      remainDisplay = "已過期";
+      remainAttrs = "";
+    } else if (item.remaining == null) {
+      remainDisplay = "N/A";
+      remainAttrs = "";
+    } else {
+      remainDisplay = "";
+      remainAttrs = \`data-remaining="\${item.remaining}" data-start="\${Date.now()}"\`;
+    }
+    
     const actionLabel = isExpired ? "已過期" : isInvalid ? "恢復有效" : "註銷";
     const actionAttrs = isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : "";
     const actionClasses = isExpired ? "btn disabled:opacity-50" : isInvalid ? "btn btn-primary" : "btn";
@@ -297,7 +311,7 @@ function renderList() {
       <td class="border px-2 py-1 break-all"><a class="link" href="\${item.url}" target="_blank">\${item.url}</a></td>
       <td class="border px-2 py-1">\${fmtTime(item.created)}</td>
       <td class="border px-2 py-1">\${fmtTime(item.expiresAt)}</td>
-      <td class="border px-2 py-1"><span class="remain font-mono" \${remainAttrs}>\${item.remaining==null ? "N/A" : ""}</span></td>
+      <td class="border px-2 py-1"><span class="remain font-mono" \${remainAttrs}>\${remainDisplay}</span></td>
       <td class="border px-2 py-1"><span class="badge \${badgeClass}">\${item.status}</span></td>
       <td class="border px-2 py-1 text-center">
         <button data-code="\${item.code}" class="\${actionClasses}" \${actionAttrs}>\${actionLabel}</button>
