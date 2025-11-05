@@ -111,7 +111,7 @@ const ADMIN_HTML = `<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>URL Shortener Admin Page</title>
+<title>URL Shortener</title>
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
@@ -150,7 +150,7 @@ table th:nth-child(2), table td:nth-child(2){white-space:normal;word-break:break
 <body class="bg-slate-50">
 	<div class="container-wrapper mx-auto p-6 space-y-6">
 		<header>
-			<h1 class="text-2xl font-semibold tracking-tight">URL Shortener Admin Page</h1>
+			<h1 class="text-2xl font-semibold tracking-tight">URL Shortener</h1>
 			<p class="text-slate-600">已由 Cloudflare Access 保護</p>
 		</header>
 
