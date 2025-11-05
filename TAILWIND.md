@@ -71,6 +71,8 @@ const ADMIN_HTML = `
 
 修改後執行 `npm run build:css` 重新編譯。
 
+**注意：** 如果使用動態類別或響應式類別,請確保已在 `tailwind.config.js` 的 `safelist` 中聲明,否則可能會被 Tailwind 的 PurgeCSS 移除。
+
 ### 方法 2：自定義 CSS
 
 在 `src/styles.css` 中添加自定義樣式：
@@ -133,7 +135,7 @@ A: Tailwind CDN 有以下限制：
 
 ### Q: 修改 HTML 後樣式沒有更新？
 
-A: 請確保執行 `npm run build:css` 重新編譯 CSS。Tailwind 會掃描 `src/**/*.{js,ts,jsx,tsx,html}` 中使用的類別。
+A: 請確保執行 `npm run build:css` 重新編譯 CSS。Tailwind 會掃描 `src/**/*.{js,ts,jsx,tsx}` 中使用的類別。
 
 ### Q: 如何添加新的 Tailwind 插件？
 

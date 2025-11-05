@@ -134,8 +134,17 @@ th[data-sort]{cursor:pointer}
 .edit-icon:hover{color:#1d4ed8}
 .container-wrapper{width:100%;max-width:100%}
 @media (min-width:640px){.container-wrapper{max-width:65%}}
-table{font-size:12px}
+table{font-size:12px;table-layout:auto}
 @media (min-width:640px){table{font-size:16px}}
+table th, table td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table th:nth-child(2), table td:nth-child(2){white-space:normal;word-break:break-all;max-width:200px}
+@media (min-width:768px){table th:nth-child(2), table td:nth-child(2){max-width:none}}
+.toast{position:fixed;bottom:2rem;right:2rem;color:#fff;padding:1rem 1.5rem;border-radius:0.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);display:flex;align-items:center;gap:0.75rem;z-index:100;animation:slideIn 0.3s ease-out}
+.toast.success{background:#10b981}
+.toast.error{background:#ef4444}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.hide{animation:slideOut 0.3s ease-in forwards}
+@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(120%);opacity:0}}
 </style>
 </head>
 <body class="bg-slate-50">
@@ -189,25 +198,23 @@ table{font-size:12px}
 					<button id="refresh" class="btn text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2">重新整理 <span class="kbd hidden sm:inline">R</span></button>
 				</div>
 			</div>
-			<div class="overflow-x-auto -mx-3 sm:mx-0">
-				<div class="inline-block min-w-full align-middle px-3 sm:px-0">
-					<table class="min-w-full border">
-						<thead class="bg-slate-100">
-							<tr>
-								<th data-sort="code" class="border px-1 sm:px-2 py-1 text-left w-24 sm:w-32">短網址 ⇅</th>
-								<th data-sort="url" class="border px-1 sm:px-2 py-1 text-left min-w-[120px]">原始網址 ⇅</th>
-								<th data-sort="created" class="border px-1 sm:px-2 py-1 text-left w-28 sm:w-40 lg:table-cell" style="display: none;">建立時間 ⇅</th>
-								<th data-sort="expiresAt" class="border px-1 sm:px-2 py-1 text-left w-28 sm:w-40 md:table-cell" style="display: none;">到期時間 ⇅</th>
-								<th data-sort="remaining" class="border px-1 sm:px-2 py-1 text-left w-24 sm:w-32">剩餘 ⇅</th>
-								<th data-sort="status" class="border px-1 sm:px-2 py-1 text-center w-28 sm:w-32">狀態 ⇅</th>
-								<th data-sort="interstitial" class="border px-1 sm:px-2 py-1 text-center w-16 sm:w-28 xl:table-cell" style="display: none;">廣告 ⇅</th>
-								<th data-sort="interstitialSeconds" class="border px-1 sm:px-2 py-1 text-center w-16 sm:w-28 xl:table-cell" style="display: none;">秒數 ⇅</th>
-								<th class="border px-1 sm:px-2 py-1 text-center w-20 sm:w-24">動作</th>
-							</tr>
-						</thead>
-						<tbody id="list-body"></tbody>
-					</table>
-				</div>
+			<div class="overflow-auto -mx-3 sm:mx-0">
+				<table class="w-full border table-auto">
+					<thead class="bg-slate-100">
+						<tr>
+							<th data-sort="code" class="border px-1 sm:px-2 py-1 text-left">短網址 ⇅</th>
+							<th data-sort="url" class="border px-1 sm:px-2 py-1 text-left">原始網址 ⇅</th>
+							<th data-sort="created" class="border px-1 sm:px-2 py-1 text-left lg:table-cell" style="display: none;">建立時間 ⇅</th>
+							<th data-sort="expiresAt" class="border px-1 sm:px-2 py-1 text-left md:table-cell" style="display: none;">到期時間 ⇅</th>
+							<th data-sort="remaining" class="border px-1 sm:px-2 py-1 text-left">剩餘 ⇅</th>
+							<th data-sort="status" class="border px-1 sm:px-2 py-1 text-center">狀態 ⇅</th>
+							<th data-sort="interstitial" class="border px-1 sm:px-2 py-1 text-center xl:table-cell" style="display: none;">廣告 ⇅</th>
+							<th data-sort="interstitialSeconds" class="border px-1 sm:px-2 py-1 text-center xl:table-cell" style="display: none;">秒數 ⇅</th>
+							<th class="border px-1 sm:px-2 py-1 text-center">動作</th>
+						</tr>
+					</thead>
+					<tbody id="list-body"></tbody>
+				</table>
 			</div>
 			<div class="mt-3 flex flex-col sm:flex-row items-center gap-2">
 				<div class="flex gap-2">
@@ -268,6 +275,43 @@ const PAGE_SIZE = 100;
 let editingCode = null; // 當前正在編輯的短網址代碼
 let countdownElements = []; // 快取需要倒數的元素及其到期時間
 
+// 顯示 Toast 通知
+const showToast = (message, type = 'success') => {
+	// 移除現有的 toast（如果有）
+	const existingToast = document.querySelector('.toast');
+	if (existingToast) {
+		existingToast.remove();
+	}
+	
+	// 根據類型選擇圖示
+	const icon = type === 'success' 
+		? \`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<polyline points="20 6 9 17 4 12"></polyline>
+			</svg>\`
+		: \`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<circle cx="12" cy="12" r="10"></circle>
+				<line x1="12" y1="8" x2="12" y2="12"></line>
+				<line x1="12" y1="16" x2="12.01" y2="16"></line>
+			</svg>\`;
+	
+	// 建立新的 toast
+	const toast = document.createElement('div');
+	toast.className = \`toast \${type}\`;
+	toast.innerHTML = \`
+		\${icon}
+		<span>\${message}</span>
+	\`;
+	document.body.appendChild(toast);
+	
+	// 2.5 秒後自動消失
+	setTimeout(() => {
+		toast.classList.add('hide');
+		setTimeout(() => {
+			toast.remove();
+		}, 300); // 等待動畫完成
+	}, 2500);
+};
+
 // 根據視窗大小更新響應式欄位顯示
 const updateResponsiveColumns = () => {
 	const width = window.innerWidth;
@@ -317,11 +361,18 @@ const fmtTime = (t)=> {
 	return \`\${year}/\${month}/\${day} \${hours}:\${minutes}:\${seconds}\`;
 };
 
-// 格式化 URL：移除 protocol 並縮短
-const fmtUrl = (url) => {
+// 格式化 URL 顯示
+// 電腦版：顯示完整 URL
+// 手機版：移除 https://, http://, www. 前綴
+const fmtUrl = (url, isMobile = false) => {
 	if (!url) return '';
-	// 移除 https:// 或 http://
+	if (!isMobile) {
+		// 電腦版：顯示完整 URL
+		return url;
+	}
+	// 手機版：移除 protocol 和 www
 	let cleaned = url.replace(/^https?:\\/\\//, '');
+	cleaned = cleaned.replace(/^www\\./, '');
 	// 移除尾部的 /
 	cleaned = cleaned.replace(/\\/$/, '');
 	return cleaned;
@@ -343,7 +394,6 @@ function startCountdown(){
 
 async function createLink(e){
 	e.preventDefault();
-	msg.textContent = "建立中...";
 	try{
 		const ttlHoursStr = $("#ttlHours").value.trim();
 		const ttl_hours = ttlHoursStr ? Number(ttlHoursStr) : undefined;
@@ -357,25 +407,35 @@ async function createLink(e){
 			interstitial_enabled: useInterstitial,
 			interstitial_seconds: useInterstitial && interstitialSecondsValue ? Number(interstitialSecondsValue) : 0
 		};
-		const res = await fetch(base + "/api/links", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) });
-		const j = await res.json();
-		if (!res.ok) throw new Error(j.error || "建立失敗");
-		msg.textContent = "✅ 成功：" + j.short;
-		form.reset();
-		
-		// 重置後要再次禁用廣告秒數輸入框
-		$("#interstitialSeconds").disabled = true;
+	const res = await fetch(base + "/api/links", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) });
+	const j = await res.json();
+	if (!res.ok) throw new Error(j.error || "建立失敗");
+	
+	// 自動複製短網址到剪貼簿
+	try {
+		await navigator.clipboard.writeText(j.short);
+		showToast("短網址建立成功並已複製到剪貼簿");
+	} catch (clipErr) {
+		showToast("短網址建立成功但是複製到剪貼簿失敗");
+	}
+	
+	form.reset();
+	
+	// 重置後要再次禁用廣告秒數輸入框
+	$("#interstitialSeconds").disabled = true;
 
-		// Optimistic Update
-		const existingIndex = allLinks.findIndex(item => item.code === j.code);
-		if (existingIndex > -1) {
-			allLinks[existingIndex] = j;
-		} else {
-			allLinks.push(j);
-		}
-		renderList();
-
-	}catch(err){ msg.textContent = "❌ " + err.message; }
+	// Optimistic Update
+	const existingIndex = allLinks.findIndex(item => item.code === j.code);
+	if (existingIndex > -1) {
+		allLinks[existingIndex] = j;
+	} else {
+		allLinks.push(j);
+	}
+	renderList();
+	}
+	catch(err){ 
+		showToast("短網址建立失敗：" + err.message, 'error'); 
+	}
 }
 
 function renderList() {
@@ -436,14 +496,17 @@ function renderList() {
 		// ★ 禁用編輯（過期時不允許切換/輸入）
 		const disabledAttr = isExpired ? 'disabled aria-disabled="true" title="已過期不可編輯"' : '';
 		
-		// ★ 格式化顯示用的 URL（移除 protocol）
-		const displayUrl = fmtUrl(item.url);
+		// ★ 格式化顯示用的 URL
+		const isMobile = window.innerWidth < 768; // md breakpoint
+		const displayUrl = fmtUrl(item.url, isMobile);
 
 		const tr = document.createElement("tr");
 		tr.innerHTML = \`
-			<td class="border px-1 sm:px-2 py-1"><a class="link" href="\${base}/\${item.code}" target="_blank">\${item.code}</a></td>
 			<td class="border px-1 sm:px-2 py-1">
-				<a class="link block truncate sm:max-w-[200px] md:max-w-[300px]" href="\${item.url}" target="_blank" title="\${item.url}" style="max-width: 25vw">\${displayUrl}</a>
+			<button class="link copy-short-link" data-short="\${base}/\${item.code}" style="background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:#1d4ed8" title="點擊複製短網址">\${item.code}</button>
+		</td>
+			<td class="border px-1 sm:px-2 py-1">
+				<a class="link block" href="\${item.url}" target="_blank" title="\${item.url}" style="word-break:break-all;overflow-wrap:anywhere">\${displayUrl}</a>
 			</td>
 			<td class="border px-1 sm:px-2 py-1 lg:table-cell" style="display: none;">
 				\${fmtTime(item.created)}
@@ -527,6 +590,21 @@ function renderList() {
 			}
 			
 			editModal.style.display = "flex";
+		});
+	});
+
+	// ★ 綁定複製短網址按鈕
+	tbody.querySelectorAll(".copy-short-link").forEach(btn => {
+		btn.addEventListener("click", async () => {
+			const shortUrl = btn.getAttribute("data-short");
+			if (!shortUrl) return;
+			
+			try {
+				await navigator.clipboard.writeText(shortUrl);
+				showToast("短網址已複製到剪貼簿");
+			} catch (err) {
+				showToast("複製失敗：" + err.message, 'error');
+			}
 		});
 	});
 
