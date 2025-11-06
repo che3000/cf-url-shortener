@@ -457,7 +457,6 @@ async function loadAllLinks(cursor = null) {
 
 async function init() {
 	if (isLoading) {
-		console.log('Already loading, skipping...');
 		showToast("正在載入中，請稍候...", 'error');
 		return;
 	}
