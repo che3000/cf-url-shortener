@@ -20,6 +20,29 @@
 
 ## 📦 部署流程（從零開始）
 
+### 0️⃣ 先決條件（請先完成）
+
+在開始之前，請先確認你有以下環境：
+
+- Node.js（建議使用 LTS 版本，例如 v18+），NPM 會隨 Node 一起安裝。
+- Wrangler CLI：用於本地開發與部署 Cloudflare Workers。
+
+安裝範例：
+
+```bash
+# 安裝 Node.js：請至 https://nodejs.org 下載 LTS 版，或使用 nvm（建議）
+# 安裝wrangler：
+npm install -g wrangler
+```
+
+登入 Cloudflare（互動式）：
+
+```bash
+wrangler login
+```
+
+---
+
 ### 1️⃣ 建立專案並安裝依賴
 
 ```bash
