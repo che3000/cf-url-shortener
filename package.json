@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --minify && echo \"export const STYLES_CSS = \\`$(cat public/styles.css)\\`;\" > src/styles-inline.ts",
-    "watch:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
+    "build:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --minify && echo \"export const STYLES_CSS = \\`$(cat public/styles.css)\\`;\" > src/styles/styles-inline.ts",
+    "watch:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --watch",
     "dev": "npm run build:css && wrangler dev",
     "deploy": "npm run build:css && wrangler deploy"
   },

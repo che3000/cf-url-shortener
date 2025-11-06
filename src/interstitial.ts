@@ -101,7 +101,7 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
         // 顯示警告訊息
         const msgEl = document.getElementById('penalty-msg');
         if (msgEl) {
-          msgEl.textContent = '沒耐心的人們，加罰10秒！';
+          msgEl.textContent = '沒耐心的人們，加罰10秒';
           msgEl.style.display = 'block';
           
           // 清除舊的計時器

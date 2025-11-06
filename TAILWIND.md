@@ -7,9 +7,19 @@
 ```
 cf-url-shortener/
 ├── src/
-│   ├── styles.css              # Tailwind CSS 源文件（包含 @tailwind directives）
-│   ├── styles-inline.ts        # 自動生成的內嵌 CSS（不要手動編輯）
-│   └── index.ts                # Worker 主文件
+│   ├── styles/
+│   │   ├── styles.css          # Tailwind CSS 源文件（包含 @tailwind directives）
+│   │   ├── styles-inline.ts    # 自動生成的內嵌 CSS（不要手動編輯）
+│   │   └── custom.css.ts       # 自訂 CSS 樣式
+│   ├── templates/              # HTML 模板檔案
+│   │   ├── admin.html.ts       # 管理後台 HTML
+│   │   ├── invalid.html.ts     # 無效頁面
+│   │   ├── root.html.ts        # 首頁
+│   │   └── unauthorized.html.ts # 未授權頁面
+│   ├── scripts/                # 客戶端 JavaScript
+│   │   └── admin-client.ts     # 管理後台 JavaScript
+│   ├── index.ts                # Worker 主文件
+│   └── interstitial.ts         # 插頁廣告
 ├── public/
 │   └── styles.css              # 編譯後的 CSS（壓縮版）
 ├── tailwind.config.js          # Tailwind 配置
@@ -26,8 +36,8 @@ npm run build:css
 ```
 
 此命令會：
-1. 使用 Tailwind CLI 編譯 `src/styles.css` → `public/styles.css`（壓縮版）
-2. 將編譯後的 CSS 轉換為 TypeScript 常數並儲存到 `src/styles-inline.ts`
+1. 使用 Tailwind CLI 編譯 `src/styles/styles.css` → `public/styles.css`（壓縮版）
+2. 將編譯後的 CSS 轉換為 TypeScript 常數並儲存到 `src/styles/styles-inline.ts`
 
 ### 2. 監聽模式（開發用）
 
@@ -35,7 +45,7 @@ npm run build:css
 npm run watch:css
 ```
 
-此命令會監聽 `src/styles.css` 的變化並自動重新編譯。
+此命令會監聽 `src/styles/styles.css` 的變化並自動重新編譯。
 
 **注意：** 監聽模式不會自動生成 `styles-inline.ts`，需要手動執行 `npm run build:css`。
 
@@ -59,10 +69,10 @@ npm run deploy
 
 ### 方法 1：使用 Tailwind Utility Classes（推薦）
 
-直接在 `src/index.ts` 的 HTML 模板中使用 Tailwind 類別：
+直接在 HTML 模板檔案（如 `src/templates/admin.html.ts`）中使用 Tailwind 類別：
 
 ```typescript
-const ADMIN_HTML = `
+export const renderAdminHTML = () => `
   <div class="bg-slate-50 p-6">
     <h1 class="text-2xl font-semibold">標題</h1>
   </div>
@@ -75,7 +85,7 @@ const ADMIN_HTML = `
 
 ### 方法 2：自定義 CSS
 
-在 `src/styles.css` 中添加自定義樣式：
+在 `src/styles/styles.css` 中添加自定義樣式：
 
 ```css
 @tailwind base;
@@ -151,7 +161,7 @@ A:
 
 ### Q: styles-inline.ts 可以手動編輯嗎？
 
-A: 不建議。此檔案由 `npm run build:css` 自動生成，手動修改會在下次編譯時被覆蓋。如需修改樣式，請編輯 `src/styles.css` 或使用 Tailwind 類別。
+A: 不建議。此檔案由 `npm run build:css` 自動生成，手動修改會在下次編譯時被覆蓋。如需修改樣式，請編輯 `src/styles/styles.css` 或使用 Tailwind 類別。若需添加自訂 CSS，可在 `src/styles/custom.css.ts` 中添加。
 
 ## 資源連結
 
