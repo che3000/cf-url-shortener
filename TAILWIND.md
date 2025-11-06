@@ -1,6 +1,6 @@
 # Tailwind CSS 配置說明
 
-本專案使用 **Tailwind CSS v3** 進行樣式管理，採用 PostCSS 編譯而非 CDN 方式，以確保生產環境的最佳效能。
+本專案使用 **Tailwind CSS v3** 進行樣式管理，採用 Tailwind CLI 編譯而非 CDN 方式，以確保生產環境的最佳效能。
 
 ## 檔案結構
 
@@ -23,7 +23,6 @@ cf-url-shortener/
 ├── public/
 │   └── styles.css              # 編譯後的 CSS（壓縮版）
 ├── tailwind.config.js          # Tailwind 配置
-├── postcss.config.js           # PostCSS 配置
 └── package.json
 ```
 
@@ -167,4 +166,3 @@ A: 不建議。此檔案由 `npm run build:css` 自動生成，手動修改會�
 
 - [Tailwind CSS 官方文檔](https://tailwindcss.com/docs)
 - [Tailwind CSS v3 升級指南](https://tailwindcss.com/docs/upgrade-guide)
-- [PostCSS 文檔](https://postcss.org/)
