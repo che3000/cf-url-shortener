@@ -213,7 +213,10 @@ function renderList() {
 			remainDisplay = "N/A";
 			remainAttrs = "";
 		} else {
-			remainDisplay = "";
+			// 計算初始剩餘時間，避免空白閃爍
+			const now = Math.floor(Date.now() / 1000);
+			const left = Math.max(0, item.expiresAt - now);
+			remainDisplay = fmt(left);
 			remainAttrs = 'data-expires-at="' + item.expiresAt + '"';
 		}
 
