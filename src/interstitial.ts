@@ -1,20 +1,20 @@
 // src/interstitial.ts
 export type InterstitialOptions = {
-    seconds?: number;
-    title?: string;
-    message?: string;
-    naruto?: string;
-    logoSvg?: string;
+  seconds?: number;
+  title?: string;
+  message?: string;
+  naruto?: string;
+  logoSvg?: string;
 };
 
 export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOptions = {}) {
-    const s = Math.max(0, Number(opts.seconds ?? 3));
-    const title = opts.title ?? "即將為您跳轉…";
-    const msg = opts.message ?? "請稍候，正在帶您前往目的地。";
-    const naruto = opts.naruto ?? "木葉飛舞之處，火亦生生不息";
-    const logo = opts.logoSvg ?? "🥷";
+  const s = Math.max(0, Number(opts.seconds ?? 3));
+  const title = opts.title ?? "即將為您跳轉…";
+  const msg = opts.message ?? "請稍候，正在帶您前往目的地。";
+  const naruto = opts.naruto ?? "木葉飛舞之處，火亦生生不息";
+  const logo = opts.logoSvg ?? "🥷";
 
-    return `<!doctype html>
+  return `<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8"/>
@@ -94,7 +94,7 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
       // 檢查剩餘秒數是否超過原始秒數的 90%
       const remainingPercentage = (sec / originalSec) * 100;
       
-      if (remainingPercentage > 90 && originalSec > 0) {
+      if (remainingPercentage > 80 && originalSec > 0) {
         // 加罰 10 秒
         sec += 10;
         
