@@ -105,6 +105,14 @@ const verifyToken = (req: Request, env: Env): boolean => {
     return token === env.API_TOKEN;
 };
 
+const isZeroTrustAuthenticated = (req: Request): boolean => {
+    // Cloudflare Zero Trust 會在認證通過後注入以下 headers
+    return !!(
+        req.headers.get("cf-access-authenticated-user-email") ||
+        req.headers.get("cf-access-client-id")
+    );
+};
+
 function computeMeta(v: KVValue | null) {
     if (!v) return { expiresAt: null, status: "expired" as const, remaining: null };
     if (v.valid === false) return { expiresAt: null, status: "invalid" as const, remaining: null };
@@ -251,7 +259,10 @@ export default {
 
         // 列表：GET /api/links?limit=&cursor=&expand=1
         if (req.method === "GET" && path === "api/links") {
-            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
+            // 允許：有有效 token 或已通過 Zero Trust 認證
+            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
+            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
+            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
             const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") || "100")));
             const cursor = url.searchParams.get("cursor") || undefined;
             const expand = url.searchParams.get("expand") === "1";
