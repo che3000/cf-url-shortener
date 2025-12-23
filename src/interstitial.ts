@@ -82,6 +82,8 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
     }
   });
   
+  let skipInProgress = false; // 防止快速連續點擊
+  
   window.addEventListener('DOMContentLoaded', () => {
     // 只有當頁面可見時才開始倒數
     if (!document.hidden) {
@@ -89,12 +91,25 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
     }
     
     document.getElementById('skip')?.addEventListener('click', (e) => {
-      e.preventDefault(); 
+      e.preventDefault();
       
-      // 檢查剩餘秒數是否超過原始秒數的 90%
+      // 防止快速連續點擊
+      if (skipInProgress) {
+        return;
+      }
+      
+      // 檢查剩餘秒數是否超過原始秒數的 80%
       const remainingPercentage = (sec / originalSec) * 100;
       
       if (remainingPercentage > 80 && originalSec > 0) {
+        // 標記正在處理中
+        skipInProgress = true;
+        const skipBtn = document.getElementById('skip');
+        if (skipBtn) {
+          skipBtn.style.pointerEvents = 'none';
+          skipBtn.style.opacity = '0.6';
+        }
+        
         // 加罰 10 秒
         sec += 10;
         
@@ -109,10 +124,15 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
             clearTimeout(penaltyTimer);
           }
           
-          // 8 秒後隱藏訊息
+          // 8 秒後隱藏訊息並解除禁用
           penaltyTimer = setTimeout(() => {
             msgEl.style.display = 'none';
             penaltyTimer = null;
+            skipInProgress = false;
+            if (skipBtn) {
+              skipBtn.style.pointerEvents = 'auto';
+              skipBtn.style.opacity = '1';
+            }
           }, 8000);
         }
         
@@ -126,7 +146,7 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
           startCountdown();
         }
       } else {
-        // 剩餘時間 <= 90%，允許跳過
+        // 剩餘時間 <= 80%，允許跳過
         stopCountdown();
         go();
       }
