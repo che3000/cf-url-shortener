@@ -27,6 +27,7 @@ export interface Env {
     LINKS: KVNamespace;
     AUTHOR?: string;
     CONTACT?: string;
+    API_TOKEN?: string;
 }
 
 type KVValue = {
@@ -97,6 +98,13 @@ const getBody = async (req: Request) => {
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
+const verifyToken = (req: Request, env: Env): boolean => {
+    if (!env.API_TOKEN) return true; // 未設定token則允許所有請求
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    return token === env.API_TOKEN;
+};
+
 function computeMeta(v: KVValue | null) {
     if (!v) return { expiresAt: null, status: "expired" as const, remaining: null };
     if (v.valid === false) return { expiresAt: null, status: "invalid" as const, remaining: null };
@@ -148,6 +156,7 @@ export default {
 
         // 建立：POST /api/links
         if (req.method === "POST" && path === "api/links") {
+            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const body = (await getBody(req)) as {
                 url?: string;
                 code?: string;
@@ -268,6 +277,7 @@ export default {
 
         // 註銷/啟用 + 更新插頁廣告設定 + 更新到期時間：PATCH /api/links/:code
         if (req.method === "PATCH" && path.startsWith("api/links/")) {
+            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
 
