@@ -380,7 +380,6 @@ export default {
 
         // 處理短連結重導向：GET /:code
         if (req.method === "GET" && path && !path.includes("/")) {
-            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const code = path;
             const raw = await env.LINKS.get(code, { type: "text" });
             if (!raw) {
