@@ -106,11 +106,9 @@ const verifyToken = (req: Request, env: Env): boolean => {
 };
 
 const isZeroTrustAuthenticated = (req: Request): boolean => {
-    // Cloudflare Zero Trust 會在認證通過後注入以下 headers
-    return !!(
-        req.headers.get("cf-access-authenticated-user-email") ||
-        req.headers.get("cf-access-client-id")
-    );
+    // 檢查 Cloudflare Zero Trust 的認證 cookies
+    const cookieHeader = req.headers.get("cookie") || "";
+    return cookieHeader.includes("CF_AppSession") || cookieHeader.includes("CF_Authorization");
 };
 
 function computeMeta(v: KVValue | null) {
