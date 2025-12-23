@@ -231,6 +231,7 @@ export default {
 
         // 讀單筆：GET /api/links/:code
         if (req.method === "GET" && path.startsWith("api/links/")) {
+            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
             const raw = await env.LINKS.get(code, { type: "text" });
@@ -250,6 +251,7 @@ export default {
 
         // 列表：GET /api/links?limit=&cursor=&expand=1
         if (req.method === "GET" && path === "api/links") {
+            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") || "100")));
             const cursor = url.searchParams.get("cursor") || undefined;
             const expand = url.searchParams.get("expand") === "1";
@@ -378,6 +380,7 @@ export default {
 
         // 處理短連結重導向：GET /:code
         if (req.method === "GET" && path && !path.includes("/")) {
+            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
             const code = path;
             const raw = await env.LINKS.get(code, { type: "text" });
             if (!raw) {
