@@ -11,8 +11,8 @@
 | 🕒 支援有效時間 (TTL) | 可設定「有效小時」，沒填即永久 |
 | ♻️ 軟刪除（可恢復） | 作廢不會刪除資料，可重新啟用 |
 | 📊 管理頁倒數計時 | 自動顯示剩餘時間，過期變 Expired |
-| � 插頁廣告中轉頁 | 可設定倒數秒數的中轉頁面（支援暫停倒數、防快速跳過） |
-| �🎨 內建 UI | 使用 Tailwind CSS v3 編譯版本，響應式設計 |
+| 📎 插頁廣告中轉頁 | 可設定倒數秒數的中轉頁面（支援暫停倒數、防快速跳過） |
+| 🎨 內建 UI | 使用 Tailwind CSS v3 編譯版本，響應式設計 |
 | 🗄️ 無需資料庫 | 使用 Cloudflare KV 儲存資料 |
 | 🌐 自訂網域 | 預設使用 `s.<yourdomain>/xxxxx` |
 
@@ -89,6 +89,22 @@ cp wrangler.toml.sample wrangler.toml
 | `zone_name` | 你的網域，例如 `<your-domain>` |
 | `routes` | 例如 `s.<your-domain>/*` |
 | `vars` |（可選）頁尾作者名稱、Email |
+
+### 2-1⃣ 設定 `API_TOKEN`
+
+先使用openssl建立API_TOKEN
+```bash
+openssl rand -hex 32
+```
+
+複製並於下列指令執行完成後貼上(不會顯示)
+
+```bash
+wrangler secret put API_TOKEN
+```
+
+- 請求時附帶 `Authorization: Bearer <你的 token>`。
+- 未設定 `API_TOKEN` 時，Worker 只會依賴 Cloudflare Access cookies（`CF_Authorization` / `CF_AppSession`）。若 `/api/*` 沒有由 Access 保護就等同於公開端點，建議至少設定其一。
 
 ---
 
@@ -177,13 +193,6 @@ npm run dev
 | 輸入法 | 預設 |
 | 子網域 | `s` |
 | 網域 | `<your-domain>` |
-| 路徑 | `api/*` |
-
-| 欄位 | 值 |
-|-------|------|
-| 輸入法 | 預設 |
-| 子網域 | `s` |
-| 網域 | `<your-domain>` |
 | 路徑 | `admin` |
 ---
 
@@ -214,6 +223,12 @@ Zero Trust → 設定 → 認證 → 登入方法 → **One-Time PIN → Enable*
 
 如果沒收到信 → 檢查 Gmail Spam / Promotions 分類
 
+### 5-4 Cookie 與 API 驗證關聯
+
+- Cloudflare Access 會發出 `CF_AppSession` 與 `CF_Authorization` cookies，Worker 會解析 `CF_Authorization`（JWT）並檢查 `exp` 過期時間，過期就會強制重新登入。
+- 所有 `/api/links` 相關端點（建立、單筆查詢、列表、更新）都接受有效的 Access cookies 或 `Authorization: Bearer <API_TOKEN>`，即可通過 `isZeroTrustAuthenticated` / `verifyToken` 檢查。
+- 若沒有設定 `API_TOKEN`，Access cookies 就成為唯一防線；請務必在 Cloudflare Access 中保護 `/admin` 以及你希望限制的 `/api/*` 路徑。
+
 ---
 
 ## 🧑‍💻 管理介面操作說明
@@ -236,6 +251,25 @@ Zero Trust → 設定 → 認證 → 登入方法 → **One-Time PIN → Enable*
 | 響應式設計 | 手機版 12px 字體，電腦版 16px 字體，自動調整欄位顯示 |
 | URL 長度優化 | 手機版顯示最多 25 字元，電腦版最多 40 字元，超過顯示「...」 |
 | 時間格式 | 24 小時制（YYYY/MM/DD HH:MM:SS） |
+
+### API 認證流程
+
+| Endpoint | 驗證條件 |
+|----------|----------|
+| `POST /api/links` | 需 `Authorization: Bearer <API_TOKEN>` **或** 有效的 Cloudflare Access cookies |
+| `GET /api/links/:code` | 同上 |
+| `GET /api/links` | 同上（列表可由管理頁面透過 Access cookies 自動帶入） |
+| `PATCH /api/links/:code` | 同上 |
+
+- 兩種驗證方式擇一即可通過，程式會同時檢查 token 與 cookies；兩者都缺少時會回傳 `401 unauthorized`。
+- 範例：
+
+```bash
+curl -X POST "https://s.<your-domain>/api/links" ^
+  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "Content-Type: application/json" ^
+  -d '{"url":"https://example.com","ttl_hours":24}'
+```
 
 ### UI 互動體驗
 
@@ -277,8 +311,10 @@ Zero Trust → 設定 → 認證 → 登入方法 → **One-Time PIN → Enable*
 | 🔄 分頁暫停 | 切換到其他分頁時暫停倒數，切回才繼續 |
 | 📑 Title 提示 | 顯示剩餘秒數（如：`(5秒) 即將為您跳轉…`） |
 | 💬 切換提示 | 背景分頁顯示「切回來才會繼續倒數喔 嘻嘻」 |
-| 🚫 防快速跳過 | 剩餘時間超過 90% 點擊「立即前往」會加罰 10 秒 |
+| 🚫 防快速跳過 | 剩餘時間超過 80% 點擊「立即前往」會加罰 10 秒並暫時鎖定按鈕 |
 | ✨ 使用者體驗 | 只有真正觀看頁面時才倒數，避免背景浪費時間 |
+
+- 為避免快速連點，按下「立即前往」後會短暫停用按鈕與滑鼠事件，待加罰訊息隱藏後才恢復。
 
 ---
 
@@ -298,11 +334,11 @@ CONTACT = "your@email.com"
 
 | 項目 | 說明 |
 |-------|------|
-| `/admin` + `/api/*` | 自動被 Zero Trust 保護 |
+| `/admin` + `/api/*` | 由 Cloudflare Zero Trust Access 保護，cookie 過期會被拒絕 |
 | `/` 根路徑 | 顯示簡潔首頁，可自訂 AUTHOR 和 CONTACT 資訊 |
 | `/[code]` 跳轉路徑 | 公開可訪問 |
 | 不存在的路徑 | 顯示「這裡不是你該來的地方」，5 秒後自動跳轉回首頁 |
-| API 不需 Token，只能由 Zero Trust 登入者操作 |
+| 管理 API | 所有 `/api/links*` 端點需 `Authorization: Bearer API_TOKEN` **或** 有效 Access cookies；若沒有 token 就必須確保 `/api/*` 受 Zero Trust 保護 |
 
 ---
 

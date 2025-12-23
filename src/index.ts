@@ -199,7 +199,9 @@ export default {
 
         // 建立：POST /api/links
         if (req.method === "POST" && path === "api/links") {
-            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
+            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
+            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
+            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
             const body = (await getBody(req)) as {
                 url?: string;
                 code?: string;
@@ -274,7 +276,9 @@ export default {
 
         // 讀單筆：GET /api/links/:code
         if (req.method === "GET" && path.startsWith("api/links/")) {
-            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
+            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
+            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
+            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
             const raw = await env.LINKS.get(code, { type: "text" });
@@ -325,7 +329,9 @@ export default {
 
         // 註銷/啟用 + 更新插頁廣告設定 + 更新到期時間：PATCH /api/links/:code
         if (req.method === "PATCH" && path.startsWith("api/links/")) {
-            if (!verifyToken(req, env)) return json({ error: "unauthorized" }, 401);
+            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
+            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
+            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
 
