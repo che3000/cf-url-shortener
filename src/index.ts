@@ -108,7 +108,44 @@ const verifyToken = (req: Request, env: Env): boolean => {
 const isZeroTrustAuthenticated = (req: Request): boolean => {
     // 檢查 Cloudflare Zero Trust 的認證 cookies
     const cookieHeader = req.headers.get("cookie") || "";
-    return cookieHeader.includes("CF_AppSession") || cookieHeader.includes("CF_Authorization");
+
+    // 檢查 CF_Authorization cookie 是否存在且有效
+    const cfAuthMatch = cookieHeader.match(/CF_Authorization=([^;]+)/);
+    if (!cfAuthMatch) {
+        // 如果沒有 CF_Authorization，檢查 CF_AppSession
+        return cookieHeader.includes("CF_AppSession");
+    }
+
+    const cfAuthToken = cfAuthMatch[1];
+
+    // CF_Authorization 通常是 JWT，嘗試解析並驗證過期時間
+    try {
+        // JWT 格式: header.payload.signature
+        const parts = cfAuthToken.split(".");
+        if (parts.length !== 3) return false;
+
+        // 解碼 payload (第二部分)
+        const payload = parts[1];
+        // 補充 padding 如果需要
+        const padded = payload + "=".repeat((4 - payload.length % 4) % 4);
+        const decoded = JSON.parse(atob(padded)) as { exp?: number };
+
+        // 檢查過期時間 (exp 是 Unix 時間戳，單位為秒)
+        if (decoded.exp) {
+            const expiresAt = decoded.exp * 1000; // 轉換為毫秒
+            const now = Date.now();
+
+            // 如果已過期，返回 false
+            if (now > expiresAt) {
+                return false;
+            }
+        }
+
+        return true;
+    } catch (e) {
+        // 解析失敗，返回 false
+        return false;
+    }
 };
 
 function computeMeta(v: KVValue | null) {
