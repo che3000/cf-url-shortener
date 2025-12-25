@@ -90,6 +90,26 @@ cp wrangler.toml.sample wrangler.toml
 | `routes` | 例如 `s.<your-domain>/*` |
 | `vars` |（可選）頁尾作者名稱、Email |
 
+範例（可直接複製）：
+
+```toml
+name = "cf-url-shortener"
+main = "src/index.ts"
+compatibility_date = "2025-11-02"
+
+kv_namespaces = [
+  { binding = "LINKS", id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+]
+
+[[routes]]
+pattern = "s.<your-domain>/*"
+zone_name = "<your-domain>"
+
+[vars]
+AUTHOR = "Your-Name"
+CONTACT = "your@gmail.com"
+```
+
 ### 2-1⃣ 設定 `API_TOKEN`
 
 先使用openssl建立API_TOKEN
@@ -141,6 +161,12 @@ dig s.<your-domain> @1.1.1.1
 
 若看到 104.xxx 或 172.xxx IP = 成功 ✅
 
+Windows 也可使用（PowerShell）：
+
+```powershell
+Resolve-DnsName s.<your-domain>
+```
+
 ---
 
 ### 5️⃣ 部署 Worker
@@ -164,6 +190,14 @@ npm run dev
 ```
 
 此命令會啟動本地開發伺服器（需要時可手動執行 `npm run build:css` 編譯樣式）。
+
+開發中也可在另一個終端視窗執行：
+
+```bash
+npm run watch:css
+```
+
+用於持續監聽樣式變更並即時輸出到 `public/styles.css`。
 
 ---
 
@@ -271,6 +305,45 @@ curl -X POST "https://s.<your-domain>/api/links" ^
   -d '{"url":"https://example.com","ttl_hours":24}'
 ```
 
+其他常用 API 範例：
+
+- 取得列表（展開詳細欄位）：
+
+```bash
+curl "https://s.<your-domain>/api/links?limit=100&expand=1" -H "Authorization: Bearer $env:API_TOKEN"
+```
+
+- 讀取單筆：
+
+```bash
+curl "https://s.<your-domain>/api/links/<code>" -H "Authorization: Bearer $env:API_TOKEN"
+```
+
+- 註銷或恢復：
+
+```bash
+curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
+  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "Content-Type: application/json" ^
+  -d '{"action":"invalidate"}'
+
+curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
+  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "Content-Type: application/json" ^
+  -d '{"action":"restore"}'
+```
+
+- 更新插頁廣告與有效時間（留空 `ttl_hours` 表示永久）：
+
+```bash
+curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
+  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "Content-Type: application/json" ^
+  -d '{"interstitial_enabled":true,"interstitial_seconds":5,"ttl_hours":24}'
+```
+
+備註：本服務對 `OPTIONS` 有回應並開啟 CORS（Access-Control-Allow-Origin: *）。
+
 ### UI 互動體驗
 
 #### Toast 通知系統
@@ -292,6 +365,15 @@ curl -X POST "https://s.<your-domain>/api/links" ^
 - 複製失敗時顯示紅色 Toast 通知並說明原因
 
 ---
+
+### 自訂短碼規則
+
+建立短碼時如果填寫「自訂短網址」，需符合下列規則：
+
+- 只能包含英數、底線與連字號（Regex: `^[\w-]{3,64}$`）
+- 長度 3–64 字元
+
+不符合規則會被拒絕；若留空則系統自動產生隨機 6 碼。
 
 ## 🔍 使用者使用短網址
 
@@ -376,6 +458,9 @@ npm run build:css
 在 `src/index.ts` 已內建 SVG favicon，可直接替換或改用 `.ico` / `.png`。
 
 詳細說明請參考 [Tailwind CSS 配置說明](./TAILWIND.md)。
+
+附註（TS 匯入副檔名）：
+- 專案採 ESM 與 Bundler 模組解析，TS 原始碼中以 `.js` 副檔名引用產出檔屬於刻意設計，無需修改。
 
 ---
 

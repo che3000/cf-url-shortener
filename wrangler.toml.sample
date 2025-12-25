@@ -2,14 +2,14 @@ name = "cf-url-shortener"
 main = "src/index.ts"
 compatibility_date = "2025-11-02"
 
-//這裡會透過終端機產生 等等複製id到這裡
+# 透過 `wrangler kv:namespace create "LINKS"` 取得 id 後填入
 kv_namespaces = [
-  { binding = "LINKS", id = "XXXXXXXXXXXXX"}. 
+  { binding = "LINKS", id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 ]
 
 [[routes]]
-pattern = "s.google.com/*"
-zone_name = "google.com"
+pattern = "s.<your-domain>/*"
+zone_name = "<your-domain>"
 
 [vars]
 AUTHOR = "Your-Name"
