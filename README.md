@@ -14,6 +14,7 @@
 | 📎 插頁廣告中轉頁 | 可設定倒數秒數的中轉頁面（支援暫停倒數、防快速跳過） |
 | 🎨 內建 UI | 使用 Tailwind CSS v3 編譯版本，響應式設計 |
 | 🗄️ 無需資料庫 | 使用 Cloudflare KV 儲存資料 |
+| 📱 iPhone快速使用 | 使用 Cloudflare Service Token 與 Apple Shortcut 實現免登入即可新增客製化超連結 |
 | 🌐 自訂網域 | 預設使用 `s.<yourdomain>/xxxxx` |
 
 ---
@@ -117,17 +118,17 @@ invocation_logs = true
 persist = true
 ```
 
-### 2-2⃣ 建立 `secrets.json`
+### 2-2 建立 `cloudflare_secrets.json`
 
 複製範本：
 
 ```bash
-cp secrets.json.sample secrets.json
+cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
 
 再依「🔐 設定 Zero Trust」章節建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `secrets.json`。
 
-### 2-3⃣ Zero Trust 路徑保護說明
+### 2-3 Zero Trust 路徑保護說明
 本專案採「Access-only」模型，Worker 本身不實作任何身份驗證。請於後續「🔐 設定 Zero Trust」章節，為 `/admin*` 與 `/api/*` 分別建立 Access 應用並以路徑強制保護。
 
 ---
@@ -219,7 +220,8 @@ npm run watch:css
 ```bash
 cp secrets.json.sample secrets.json
 ```
-請手動更新 `secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`。
+請手動更新 `secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，並將檔案丟到 `iCloud/Downloads`。
+Shortcut檔案還在驗證，下一版本會更新．
 範例
 ```json
 {
