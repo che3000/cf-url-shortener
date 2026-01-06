@@ -140,7 +140,7 @@ async function createLink(e){
 			interstitial_enabled: useInterstitial,
 			interstitial_seconds: useInterstitial && interstitialSecondsValue ? Number(interstitialSecondsValue) : 0
 		};
-	const res = await fetch(base + "/api/links", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) });
+	const res = await fetch(base + "/admin/api/links", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(body) });
 	const j = await res.json();
 	if (!res.ok) throw new Error(j.error || "建立失敗");
 	
@@ -330,7 +330,7 @@ function renderList() {
 			const actionText = action === "restore" ? "啟用" : "註銷";
 			
 			try {
-				const res = await fetch(base + "/api/links/" + encodeURIComponent(code), {
+				const res = await fetch(base + "/admin/api/links/" + encodeURIComponent(code), {
 					method:"PATCH",
 					headers:{ "content-type":"application/json" },
 					body: JSON.stringify({ action })
@@ -401,7 +401,7 @@ modalSave.addEventListener("click", async () => {
 	};
 	
 	try {
-		const res = await fetch(base + "/api/links/" + encodeURIComponent(editingCode), {
+		const res = await fetch(base + "/admin/api/links/" + encodeURIComponent(editingCode), {
 			method: "PATCH",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(payload)
@@ -443,7 +443,7 @@ async function loadAllLinks(cursor = null) {
 	const params = new URLSearchParams({ limit: "1000", expand: "1" });
 	if (cursor) params.set("cursor", cursor);
 
-	const res = await fetch(base + "/api/links?" + params.toString());
+	const res = await fetch(base + "/admin/api/links?" + params.toString());
 	const j = await res.json();
 
 	if (j.items) {
