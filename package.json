@@ -8,7 +8,8 @@
     "build:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --minify && node ./scripts/generate-inline-css.mjs",
     "watch:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --watch",
     "dev": "npm run build:css && wrangler dev",
-    "deploy": "npm run build:css && wrangler deploy"
+    "deploy": "npm run build:css && wrangler deploy",
+    "typecheck": "npm run build:css && tsc --noEmit"
   },
   "keywords": [],
   "author": "",
