@@ -210,6 +210,7 @@ npm run watch:css
 本系統採用「Access-only 強制、Worker 無認證邏輯」的目標狀態。請在 Cloudflare Zero Trust Access 控制下依序操作：
 **服務認證**
 1. 建立服務 Token
+   
 | 欄位 | 值 |
 |-------|------|
 | 服務 Token 名稱 | url-shortener-token |
@@ -241,6 +242,7 @@ Shortcut檔案還在驗證，下一版本會更新．
 
 **原則**
 1) url-shortener-api
+   
 **基本資訊**
 | 欄位 | 值 |
 |-------|------|
@@ -256,6 +258,7 @@ Shortcut檔案還在驗證，下一版本會更新．
 儲存
 
 2) url-shortener-admin
+   
 **基本資訊**
 | 欄位 | 值 |
 |-------|------|
@@ -272,6 +275,7 @@ Shortcut檔案還在驗證，下一版本會更新．
 
 **應用程式**
 1) url-shortener-api
+   
 **基本資訊**
 | 欄位 | 值 |
 |-------|------|
@@ -288,6 +292,7 @@ Shortcut檔案還在驗證，下一版本會更新．
 4. 儲存應用程式
 
 2) url-shortener-admin
+   
 **基本資訊**
 | 欄位 | 值 |
 |-------|------|
