@@ -7,3 +7,4 @@ src/styles/styles-inline.ts
 
 # Config file (contains sensitive information)
 wrangler.toml
+secrets.json

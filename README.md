@@ -110,21 +110,18 @@ AUTHOR = "Your-Name"
 CONTACT = "your@gmail.com"
 ```
 
-### 2-1⃣ 設定 `API_TOKEN`
+### 2-2⃣ 建立 `secrets.json`
 
-先使用openssl建立API_TOKEN
-```bash
-openssl rand -hex 32
-```
-
-複製並於下列指令執行完成後貼上(不會顯示)
+複製範本：
 
 ```bash
-wrangler secret put API_TOKEN
+cp secrets.json.sample secrets.json
 ```
 
-- 請求時附帶 `Authorization: Bearer <你的 token>`。
-- 未設定 `API_TOKEN` 時，Worker 只會依賴 Cloudflare Access cookies（`CF_Authorization` / `CF_AppSession`）。若 `/api/*` 沒有由 Access 保護就等同於公開端點，建議至少設定其一。
+再依「🔐 設定 Zero Trust」章節建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `secrets.json`。
+
+### 2-3⃣ Zero Trust 路徑保護說明
+本專案採「Access-only」模型，Worker 本身不實作任何身份驗證。請於後續「🔐 設定 Zero Trust」章節，為 `/admin*` 與 `/api/*` 分別建立 Access 應用並以路徑強制保護。
 
 ---
 
@@ -134,8 +131,8 @@ wrangler secret put API_TOKEN
 wrangler kv:namespace create "LINKS"
 ```
 
-會自動寫入到 `wrangler.toml`：
-如果沒有的話複製id過去。
+會自動寫入到 `wrangler.toml`。
+若未自動寫入，請手動複製 KV ID 至 `wrangler.toml`。
 
 ```toml
 kv_namespaces = [
@@ -147,12 +144,12 @@ kv_namespaces = [
 
 ### 4️⃣ 設定 DNS（Cloudflare Dashboard → DNS → 紀錄）
 
-| 類型 | 名稱 | 內容 | Proxy狀態 | TTL |
+| 類型 | 名稱 | 內容 | Proxy 狀態 | TTL |
 |-------|-------|---------|--------|-------|
 | CNAME | `s` | `<your-worker>.workers.dev` | ☁️ Proxied (ON) | 自動 |
 
 
-等大概十五分鐘後驗證：
+等待約 15 分鐘後驗證：
 
 ```bash
 nslookup s.<your-domain>
@@ -201,67 +198,145 @@ npm run watch:css
 
 ---
 
-## 🔐 設定 Zero Trust（保護 /admin）
-
-後台網址：`https://s.<your-domain>/admin`
-
-✅ 讓一般使用者可用短網址  
-✅ 只有授權信箱能登入管理頁面
-
----
-
-### 5-1 建立 Access 應用程式
-
-1. https://one.dash.cloudflare.com → **Access → 應用程式 → 加入應用程式**
-2. 選 自我裝載 → 選取
-3. 填入：
-
+## 🔐 設定 Zero Trust
+本系統採用「Access-only 強制、Worker 無認證邏輯」的目標狀態。請在 Cloudflare Zero Trust Access 控制下依序操作：
+**服務認證**
+1. 建立服務 Token
 | 欄位 | 值 |
 |-------|------|
-| 應用程式名稱 | url-shortener-api |
-| 工作階段持續時間 | `24h` |
+| 服務 Token 名稱 | url-shortener-token |
+| 服務 Token 持續時間 | 沒有期限 |
+2. 產生 Token（取得 Client Id 與 Client Secret）
 
-新增公用主機名稱
+3. 於專案根目錄建立 `secrets.json`（從範本複製後填值）
+```bash
+cp secrets.json.sample secrets.json
+```
+請手動更新 `secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`。
+範例
+```json
+{
+  "env": "production",
+  "api": {
+    "base_url": "https://s.<your-domain>/api/links"
+  },
+  "auth": {
+    "CF-Access-Client-Id": "14XXXXXXXcdd81e4373.access",
+    "CF-Access-Client-Secret": "6f7XXXXXX20b9167"
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}
+```
+
+**原則**
+1) url-shortener-api
+**基本資訊**
 | 欄位 | 值 |
 |-------|------|
-| 輸入法 | 預設 |
-| 子網域 | `s` |
-| 網域 | `<your-domain>` |
-| 路徑 | `admin` |
----
+| 原則名稱 | url-shortener-api |
+| 動作 | Service Auth |
+| 工作階段持續時間 | 與應用程式工作階段逾時相同 |
 
-### 5-2 設定 Access 原則
-
-基本資訊
+**新增規則（包含 OR）**
 | 欄位 | 值 |
-|-------|--------|
-| 原則名稱 | access-mail |
+|-------|------|
+| 選取器 | Service Token |
+| 值 | url-shortener-token |
+儲存
+
+2) url-shortener-admin
+**基本資訊**
+| 欄位 | 值 |
+|-------|------|
+| 原則名稱 | url-shortener-admin |
 | 動作 | Allow |
 | 工作階段持續時間 | 與應用程式工作階段逾時相同 |
 
-新增規則
-包含 OR
+**新增規則（包含 OR）**
 | 欄位 | 值 |
-| Selector | Emails |
-| Emails | 你的信箱或群組 |
+|-------|------|
+| 選取器 | Emails |
+| 值 | `your@email.com` |
+儲存
 
-範例：  
-✅ 允許 `you@gmail.com`  
-✅ 或允許 `@yourcompany.com` 網域  
+**應用程式**
+1) url-shortener-api
+**基本資訊**
+| 欄位 | 值 |
+|-------|------|
+| 應用程式名稱 | url-shortener-api |
+| 工作階段持續時間 | 24 Hours |
+| 子網域 | s |
+| 網域 | <your-domain> |
+| 路徑 | `api/*` |
 
----
+**原則** 依序點選
+1. 選取原則
+2. url-shortener-api
+3. 確認
+4. 儲存應用程式
 
-### 5-3 啟用 OTP
+2) url-shortener-admin
+**基本資訊**
+| 欄位 | 值 |
+|-------|------|
+| 應用程式名稱 | url-shortener-admin |
+| 工作階段持續時間 | 24 Hours |
+| 子網域 | s |
+| 網域 | <your-domain> |
+| 路徑 | `admin*` |
 
-Zero Trust → 設定 → 認證 → 登入方法 → **One-Time PIN → Enable**
+**原則** 依序點選
+1. 選取原則
+2. url-shortener-admin
+3. 確認
+4. 儲存應用程式
 
-如果沒收到信 → 檢查 Gmail Spam / Promotions 分類
 
-### 5-4 Cookie 與 API 驗證關聯
+重要原則：
+- Worker 不檢查 `CF-Access-*`、`CF_Authorization`、`CF_AppSession` 等任一 header/cookie
+- 任何 401/403 均由 Cloudflare Access 在 Worker 之前決定；Worker 僅根據 path 服務內容
+- 人類不可直呼 `/api/*`；管理頁僅呼叫 `/admin/api/*`
 
-- Cloudflare Access 會發出 `CF_AppSession` 與 `CF_Authorization` cookies，Worker 會解析 `CF_Authorization`（JWT）並檢查 `exp` 過期時間，過期就會強制重新登入。
-- 所有 `/api/links` 相關端點（建立、單筆查詢、列表、更新）都接受有效的 Access cookies 或 `Authorization: Bearer <API_TOKEN>`，即可通過 `isZeroTrustAuthenticated` / `verifyToken` 檢查。
-- 若沒有設定 `API_TOKEN`，Access cookies 就成為唯一防線；請務必在 Cloudflare Access 中保護 `/admin` 以及你希望限制的 `/api/*` 路徑。
+注意事項：
+- `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 由 Zero Trust「服務 Token」產生。
+- 人類使用瀏覽器不需要此檔案；僅機器端/自動化腳本需要。
+
+PowerShell 使用範例（讀取 secrets.json 呼叫 API）：
+
+```powershell
+$cfg = Get-Content .\secrets.json | ConvertFrom-Json
+
+curl -X POST $cfg.api.base_url ^
+  -H "CF-Access-Client-Id: $($cfg.auth.'CF-Access-Client-Id')" ^
+  -H "CF-Access-Client-Secret: $($cfg.auth.'CF-Access-Client-Secret')" ^
+  -H "Content-Type: application/json" ^
+  -d '{"url":"https://example.com","ttl_hours":24}'
+```
+
+Node.js 使用範例（Node 18+）：
+
+```js
+import fs from 'node:fs/promises'
+
+const cfg = JSON.parse(await fs.readFile('./secrets.json', 'utf8'))
+const res = await fetch(cfg.api.base_url, {
+  method: 'POST',
+  headers: {
+    'CF-Access-Client-Id': cfg.auth['CF-Access-Client-Id'],
+    'CF-Access-Client-Secret': cfg.auth['CF-Access-Client-Secret'],
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ url: 'https://example.com', ttl_hours: 24 })
+})
+console.log(await res.json())
+```
+
+CI 環境建議：
+- 將 `CF-Access-Client-Id`、`CF-Access-Client-Secret` 以 CI Secret/變數管理（避免保存 JSON 檔）。
+- 指令可改讀取環境變數（例如 `$env:CF_ACCESS_CLIENT_ID` / `$env:CF_ACCESS_CLIENT_SECRET`）。
 
 ---
 
@@ -288,61 +363,36 @@ Zero Trust → 設定 → 認證 → 登入方法 → **One-Time PIN → Enable*
 
 ### API 認證流程
 
-| Endpoint | 驗證條件 |
-|----------|----------|
-| `POST /api/links` | 需 `Authorization: Bearer <API_TOKEN>` **或** 有效的 Cloudflare Access cookies |
-| `GET /api/links/:code` | 同上 |
-| `GET /api/links` | 同上（列表可由管理頁面透過 Access cookies 自動帶入） |
-| `PATCH /api/links/:code` | 同上 |
+| Path | 使用者 | 驗證條件 |
+|------|--------|----------|
+| `/api/*` | 機器 | 以 Access Service Token 呼叫，需附上 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` headers；無人類登入頁面 |
+| `/admin*` | 人類 | 由 Access 驗證 Email 登入（Cookies 由 Access 管理）；瀏覽器端僅呼叫 `/admin/api/*` |
+| `/admin/api/*` | 人類 | 僅同源（Same-Origin）呼叫，受 `/admin*` 的 Access 規則保護 |
 
-- 兩種驗證方式擇一即可通過，程式會同時檢查 token 與 cookies；兩者都缺少時會回傳 `401 unauthorized`。
-- 範例：
+curl 範例（機器呼叫 `/api/*`，使用 Service Token）：
 
-```bash
+```powershell
+$env:CF_ACCESS_CLIENT_ID="<client-id>"
+$env:CF_ACCESS_CLIENT_SECRET="<client-secret>"
+
 curl -X POST "https://s.<your-domain>/api/links" ^
-  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "CF-Access-Client-Id: $env:CF_ACCESS_CLIENT_ID" ^
+  -H "CF-Access-Client-Secret: $env:CF_ACCESS_CLIENT_SECRET" ^
   -H "Content-Type: application/json" ^
   -d '{"url":"https://example.com","ttl_hours":24}'
-```
 
-其他常用 API 範例：
+curl "https://s.<your-domain>/api/links?limit=100&expand=1" ^
+  -H "CF-Access-Client-Id: $env:CF_ACCESS_CLIENT_ID" ^
+  -H "CF-Access-Client-Secret: $env:CF_ACCESS_CLIENT_SECRET"
 
-- 取得列表（展開詳細欄位）：
-
-```bash
-curl "https://s.<your-domain>/api/links?limit=100&expand=1" -H "Authorization: Bearer $env:API_TOKEN"
-```
-
-- 讀取單筆：
-
-```bash
-curl "https://s.<your-domain>/api/links/<code>" -H "Authorization: Bearer $env:API_TOKEN"
-```
-
-- 註銷或恢復：
-
-```bash
 curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
-  -H "Authorization: Bearer $env:API_TOKEN" ^
+  -H "CF-Access-Client-Id: $env:CF_ACCESS_CLIENT_ID" ^
+  -H "CF-Access-Client-Secret: $env:CF_ACCESS_CLIENT_SECRET" ^
   -H "Content-Type: application/json" ^
   -d '{"action":"invalidate"}'
-
-curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
-  -H "Authorization: Bearer $env:API_TOKEN" ^
-  -H "Content-Type: application/json" ^
-  -d '{"action":"restore"}'
 ```
 
-- 更新插頁廣告與有效時間（留空 `ttl_hours` 表示永久）：
-
-```bash
-curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
-  -H "Authorization: Bearer $env:API_TOKEN" ^
-  -H "Content-Type: application/json" ^
-  -d '{"interstitial_enabled":true,"interstitial_seconds":5,"ttl_hours":24}'
-```
-
-備註：本服務對 `OPTIONS` 有回應並開啟 CORS（Access-Control-Allow-Origin: *）。
+備註：本服務會回應 `OPTIONS`，並僅允許同源 CORS（Access-Control-Allow-Origin: <same-origin>）。
 
 ### UI 互動體驗
 
@@ -398,17 +448,6 @@ curl -X PATCH "https://s.<your-domain>/api/links/<code>" ^
 
 - 為避免快速連點，按下「立即前往」後會短暫停用按鈕與滑鼠事件，待加罰訊息隱藏後才恢復。
 
----
-
-## 📝 自訂頁尾資訊
-
-你可在 `wrangler.toml` 加上：
-
-```toml
-[vars]
-AUTHOR = "Your Name"
-CONTACT = "your@email.com"
-```
 
 ---
 
@@ -416,11 +455,14 @@ CONTACT = "your@email.com"
 
 | 項目 | 說明 |
 |-------|------|
-| `/admin` + `/api/*` | 由 Cloudflare Zero Trust Access 保護，cookie 過期會被拒絕 |
+| 路徑所有權 | `/` 與 `/{shortCode}` 公開；`/admin*` 人類（Email Login via Access）；`/api/*` 機器（Service Token via Access） |
+| 認證模型 | Access-only；Worker 不檢查任何 `CF-Access-*` 或 cookies，也不回傳自訂 401/403 |
+| `/admin` | 以 Access 驗證人員；管理頁僅呼叫 `/admin/api/*` |
+| `/api/*` | 僅能被 Service Token 存取；不可由瀏覽器直接呼叫 |
 | `/` 根路徑 | 顯示簡潔首頁，可自訂 AUTHOR 和 CONTACT 資訊 |
 | `/[code]` 跳轉路徑 | 公開可訪問 |
 | 不存在的路徑 | 顯示「這裡不是你該來的地方」，5 秒後自動跳轉回首頁 |
-| 管理 API | 所有 `/api/links*` 端點需 `Authorization: Bearer API_TOKEN` **或** 有效 Access cookies；若沒有 token 就必須確保 `/api/*` 受 Zero Trust 保護 |
+| 管理 API | `/admin/api/*` 僅供同源、已登入的人員；`/api/*` 僅供 Service Token 使用 |
 
 ---
 
