@@ -1,4 +1,5 @@
-// Cloudflare Workers - URL Shortener (hours TTL + soft delete + improved UI & security)
+// Cloudflare Workers - URL Shortener
+// Access-only final version (Admin via Access session, API via Access session or Service Token)
 
 import { renderInterstitialHTML } from "./interstitial";
 import { STYLES_CSS } from "./styles/styles-inline";
@@ -9,33 +10,32 @@ import { renderUnauthorizedHTML } from "./templates/unauthorized.html.js";
 
 const FAVICON_SVG = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24">
-	<defs>
-		<linearGradient id="g" x1="0" x2="1">
-			<stop offset="0" stop-color="#6366f1"/>
-			<stop offset="1" stop-color="#06b6d4"/>
-		</linearGradient>
-	</defs>
-	<rect x="2" y="2" width="20" height="20" rx="4" fill="url(#g)"/>
-	<path d="M8.5 12a2.5 2.5 0 0 1 0-3.5l2-2a2.5 2.5 0 0 1 3.5 3.5l-.6.6"
-				stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-	<path d="M15.5 12a2.5 2.5 0 0 1 0 3.5l-2 2a2.5 2.5 0 1 1-3.5-3.5l.6-.6"
-				stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="20" height="20" rx="4" fill="url(#g)"/>
+  <path d="M8.5 12a2.5 2.5 0 0 1 0-3.5l2-2a2.5 2.5 0 0 1 3.5 3.5l-.6.6"
+        stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15.5 12a2.5 2.5 0 0 1 0 3.5l-2 2a2.5 2.5 0 1 1-3.5-3.5l.6-.6"
+        stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 export interface Env {
     LINKS: KVNamespace;
     AUTHOR?: string;
     CONTACT?: string;
-    API_TOKEN?: string;
 }
 
 type KVValue = {
     url: string;
     created: number; // epoch seconds
-    ttl?: number; // seconds (undefined = 永久)
-    valid?: boolean; // soft delete: false = 註銷
+    ttl?: number;    // seconds (undefined = permanent)
+    valid?: boolean; // soft delete
     interstitial_enabled: boolean;
-    interstitial_seconds?: number; // seconds (0 = disable)
+    interstitial_seconds?: number;
 };
 
 type KVListResult = {
@@ -60,18 +60,21 @@ type ListedItem = {
 
 const SOON_THRESHOLD_SEC = 3600;
 
-const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
-    new Response(globalThis.JSON.stringify(data), {
+// ---------- helpers ----------
+
+const json = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), {
         status,
-        headers: { "content-type": "application/json; charset=utf-8", ...headers },
+        headers: { "content-type": "application/json; charset=utf-8" },
     });
+
+const nowSec = () => Math.floor(Date.now() / 1000);
 
 const normalizeUrl = (raw?: string | null): string | null => {
     if (!raw) return null;
     let s = String(raw).trim();
     if (!s) return null;
-    const hasScheme = /^[a-zA-Z][\w+.-]*:/.test(s);
-    if (!hasScheme) s = `https://${s}`;
+    if (!/^[a-zA-Z][\w+.-]*:/.test(s)) s = `https://${s}`;
     try {
         const u = new URL(s);
         if (u.protocol !== "http:" && u.protocol !== "https:") return null;
@@ -89,7 +92,7 @@ const genCode = (len = 6) =>
 
 const getBody = async (req: Request) => {
     const ct = req.headers.get("content-type") || "";
-    if (ct.includes("application/json")) return (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (ct.includes("application/json")) return await req.json().catch(() => ({}));
     if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
         const form = await req.formData();
         const obj: Record<string, unknown> = {};
@@ -98,36 +101,6 @@ const getBody = async (req: Request) => {
     }
     return {};
 };
-
-const nowSec = () => Math.floor(Date.now() / 1000);
-
-// ===== Auth (Token + Cloudflare Access injected headers) =====
-
-const verifyToken = (req: Request, env: Env): boolean => {
-    // C2: 未設定 API_TOKEN，不允許走 token 路徑（避免誤開放）
-    if (!env.API_TOKEN) return false;
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    return token === env.API_TOKEN;
-};
-
-const requireAuth = (req: Request, env: Env): boolean => verifyToken(req, env);
-
-// ===== CORS (same-origin) =====
-
-const buildCors = (req: Request, origin: string) => {
-    const o = req.headers.get("origin") || "";
-    const allow = o && o === origin ? o : "";
-    return {
-        "access-control-allow-origin": allow,
-        vary: "origin",
-        "access-control-allow-headers": "authorization,content-type",
-        "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
-        "access-control-max-age": "86400",
-    };
-};
-
-// ===== helpers (M1) =====
 
 const toBool = (v: unknown) => v === true || String(v).toLowerCase() === "true";
 
@@ -150,114 +123,80 @@ function computeMeta(v: KVValue | null) {
     return { expiresAt: exp, status: "active" as const, remaining: remain };
 }
 
+// ---------- handler ----------
+
 export default {
     async fetch(req: Request, env: Env): Promise<Response> {
         const url = new URL(req.url);
         const path = url.pathname.replace(/^\/+/, "");
 
-        // OPTIONS (L3 already fixed: no DELETE)
-        if (req.method === "OPTIONS") {
-            return new Response(null, { status: 204, headers: buildCors(req, url.origin) });
-        }
-
         // favicon
-        if (req.method === "GET" && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
+        if (req.method === "GET" && (path === "favicon.ico" || path === "favicon.svg")) {
             return new Response(FAVICON_SVG, {
-                headers: {
-                    "content-type": "image/svg+xml; charset=utf-8",
-                    "cache-control": "public, max-age=86400",
-                },
+                headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" },
             });
         }
 
         // styles
-        if (req.method === "GET" && url.pathname === "/styles.css") {
+        if (req.method === "GET" && path === "styles.css") {
             return new Response(STYLES_CSS, {
-                headers: {
-                    "content-type": "text/css; charset=utf-8",
-                    "cache-control": "no-cache, no-store, must-revalidate",
-                },
+                headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-cache, no-store" },
             });
         }
 
-        // admin page (你已用 Zero Trust 保護 /admin*，此處不額外做 cookie/JWT 解析)
-        if (req.method === "GET" && path === "admin") {
+        // admin (Access protected)
+        if (req.method === "GET" && (path === "admin" || path.startsWith("admin/"))) {
             return new Response(renderAdminHTML(), { headers: { "content-type": "text/html; charset=utf-8" } });
         }
 
-        // root page
+        // root
         if (req.method === "GET" && path === "") {
-            const author = env.AUTHOR ?? "";
-            const contact = env.CONTACT ?? "";
-            return new Response(renderRootHTML(author, contact), {
+            return new Response(renderRootHTML(env.AUTHOR ?? "", env.CONTACT ?? ""), {
                 headers: { "content-type": "text/html; charset=utf-8" },
             });
         }
 
-        // ===== API: POST /api/links =====
+        // ---------- API ----------
+
+        // POST /api/links
         if (req.method === "POST" && path === "api/links") {
-            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
-
-            const body = (await getBody(req)) as {
-                url?: string;
-                code?: string;
-                ttl_hours?: number | string;
-                ttl?: number | string;
-                interstitial_enabled?: boolean | string;
-                interstitial_seconds?: number | string | null;
-            };
-
+            const body = (await getBody(req)) as any;
             const longUrl = normalizeUrl(body.url);
             if (!longUrl) return json({ error: "invalid url" }, 400);
 
             let code = body.code?.trim();
-
             if (code) {
                 if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code format" }, 400);
-                const existing = await env.LINKS.get(code);
-                if (existing) return json({ error: "code already in use" }, 409);
+                if (await env.LINKS.get(code)) return json({ error: "code already in use" }, 409);
             } else {
-                let retries = 5;
-                let unique = false;
-                do {
-                    code = genCode(6);
-                    const existing = await env.LINKS.get(code);
-                    if (!existing) {
-                        unique = true;
+                let ok = false;
+                for (let i = 0; i < 8; i++) {
+                    const c = genCode(6);
+                    if (!(await env.LINKS.get(c))) {
+                        code = c;
+                        ok = true;
                         break;
                     }
-                    retries--;
-                } while (retries > 0);
-                if (!unique) return json({ error: "failed to generate a unique code" }, 500);
+                }
+                if (!ok) return json({ error: "failed to generate code" }, 500);
             }
 
-            // TTL
             let ttlSec: number | undefined;
-            if (body.ttl_hours !== undefined && String(body.ttl_hours) !== "") {
-                const hours = Number(body.ttl_hours);
-                if (!Number.isFinite(hours) || hours <= 0) return json({ error: "invalid ttl_hours" }, 400);
-                ttlSec = Math.round(hours * 3600);
-            } else if (body.ttl !== undefined && String(body.ttl) !== "") {
-                const ttl = Number(body.ttl);
-                if (!Number.isFinite(ttl) || ttl <= 0) return json({ error: "invalid ttl" }, 400);
-                ttlSec = Math.round(ttl);
+            if (body.ttl_hours) {
+                const h = Number(body.ttl_hours);
+                if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400);
+                ttlSec = Math.round(h * 3600);
             }
 
-            // M1: interstitial parsing (consistent)
             const enabled = toBool(body.interstitial_enabled);
-            let interstitialSeconds = 0;
-            if (enabled) {
-                const s = toIntOrNull(body.interstitial_seconds);
-                interstitialSeconds = s && s > 0 ? s : 5;
-            }
-
+            const s = toIntOrNull(body.interstitial_seconds);
             const payload: KVValue = {
                 url: longUrl,
                 created: nowSec(),
                 ttl: ttlSec,
                 valid: true,
                 interstitial_enabled: enabled,
-                interstitial_seconds: interstitialSeconds,
+                interstitial_seconds: enabled ? (s && s > 0 ? s : 5) : 0,
             };
 
             await env.LINKS.put(code!, JSON.stringify(payload));
@@ -277,72 +216,21 @@ export default {
             });
         }
 
-        // ===== API: GET /api/links/:code =====
-        if (req.method === "GET" && path.startsWith("api/links/")) {
-            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
-
-            const code = path.split("/").pop() || "";
-            if (!code) return json({ error: "invalid code" }, 400);
-
-            const raw = await env.LINKS.get(code, { type: "text" });
-            if (!raw) return json({ error: "not found" }, 404);
-
-            let v: KVValue | null = null;
-            try {
-                v = JSON.parse(raw) as KVValue;
-            } catch {
-                v = null;
-            }
-            if (!v?.url) return json({ error: "not found" }, 404);
-
-            const meta = computeMeta(v);
-            return json({
-                code,
-                url: v.url,
-                ttl: v.ttl ?? null,
-                created: v.created,
-                expiresAt: meta.expiresAt,
-                status: meta.status,
-                remaining: meta.remaining,
-                valid: v.valid !== false,
-                interstitial_enabled: v.interstitial_enabled,
-                interstitial_seconds: v.interstitial_seconds ?? null,
-            });
-        }
-
-        // ===== API: GET /api/links?limit=&cursor=&expand=1 =====
+        // GET /api/links
         if (req.method === "GET" && path === "api/links") {
-            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
-
-            const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") || "100")));
+            const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || "100")));
             const cursor = url.searchParams.get("cursor") || undefined;
             const expand = url.searchParams.get("expand") === "1";
-
-            // L2: 防止 expand 造成大量 KV.get（你不想大改的情況下，先用硬上限）
-            if (expand && limit > 200) {
-                return json({ error: "expand too large; reduce limit to <= 200" }, 400);
-            }
 
             const list = (await env.LINKS.list({ limit, cursor })) as KVListResult;
             let items: ListedItem[] = list.keys.map((k) => ({ code: k.name }));
 
-            if (expand && items.length) {
+            if (expand) {
                 items = await Promise.all(
                     items.map(async (it) => {
                         const raw = await env.LINKS.get(it.code, { type: "text" });
-
-                        // L1: missing vs expired
                         if (!raw) return { code: it.code, status: "missing" as const };
-
-                        let v: KVValue | null = null;
-                        try {
-                            v = JSON.parse(raw) as KVValue;
-                        } catch {
-                            v = null;
-                        }
-
-                        if (!v?.url) return { code: it.code, status: "missing" as const };
-
+                        const v = JSON.parse(raw) as KVValue;
                         const meta = computeMeta(v);
                         return {
                             code: it.code,
@@ -352,7 +240,7 @@ export default {
                             expiresAt: meta.expiresAt,
                             status: meta.status,
                             remaining: meta.remaining,
-                            interstitial_enabled: v.interstitial_enabled ?? false,
+                            interstitial_enabled: v.interstitial_enabled,
                             interstitial_seconds: v.interstitial_seconds ?? null,
                         };
                     })
@@ -362,71 +250,35 @@ export default {
             return json({ items, cursor: list.cursor || null, list_complete: list.list_complete });
         }
 
-        // ===== API: PATCH /api/links/:code =====
+        // PATCH /api/links/:code
         if (req.method === "PATCH" && path.startsWith("api/links/")) {
-            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
-
-            const code = path.split("/").pop() || "";
-            if (!code) return json({ error: "invalid code" }, 400);
-
+            const code = path.split("/").pop()!;
             const raw = await env.LINKS.get(code, { type: "text" });
             if (!raw) return json({ error: "not found" }, 404);
 
-            let v: KVValue | null = null;
-            try {
-                v = JSON.parse(raw) as KVValue;
-            } catch {
-                v = null;
-            }
-            if (!v?.url) return json({ error: "not found" }, 404);
+            const v = JSON.parse(raw) as KVValue;
+            const body = (await getBody(req)) as any;
 
-            const body = (await getBody(req)) as {
-                action?: "invalidate" | "restore";
-                interstitial_enabled?: boolean | string;
-                interstitial_seconds?: number | string | null;
-                ttl_hours?: number | string | null;
-            };
-
-            // 1) invalidate/restore
             if (body.action === "invalidate") v.valid = false;
-            else if (body.action === "restore") v.valid = true;
-            else if (body.action != null) return json({ error: "invalid action" }, 400);
+            if (body.action === "restore") v.valid = true;
 
-            // 2) interstitial (M1 consistent parsing)
-            const hasToggle = typeof body.interstitial_enabled !== "undefined" && body.interstitial_enabled !== "";
-            const hasSeconds = typeof body.interstitial_seconds !== "undefined";
-
-            if (hasToggle || hasSeconds) {
-                const enabled = hasToggle ? toBool(body.interstitial_enabled) : (v.interstitial_enabled ?? false);
-                v.interstitial_enabled = enabled;
-
-                if (!enabled) {
-                    // 關閉時 seconds 一律設 0
-                    v.interstitial_seconds = 0;
-                } else if (hasSeconds) {
-                    const s = toIntOrNull(body.interstitial_seconds);
-                    if (s === null) {
-                        v.interstitial_seconds = 0;
-                    } else if (s < 0) {
-                        return json({ error: "invalid interstitial_seconds" }, 400);
-                    } else {
-                        v.interstitial_seconds = s;
-                    }
-                } else {
-                    // enabled=true 但沒傳 seconds：若原本是 0/undefined，給預設 5
-                    if (!v.interstitial_seconds || v.interstitial_seconds <= 0) v.interstitial_seconds = 5;
+            if (body.ttl_hours !== undefined) {
+                if (!body.ttl_hours) v.ttl = undefined;
+                else {
+                    const h = Number(body.ttl_hours);
+                    if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400);
+                    v.ttl = Math.round(h * 3600);
+                    v.created = nowSec();
                 }
             }
 
-            // 3) TTL (你說不改：維持「更新 TTL 會重設 created」的行為)
-            if (typeof body.ttl_hours !== "undefined") {
-                if (body.ttl_hours === null || body.ttl_hours === "") {
-                    v.ttl = undefined;
-                } else {
-                    const hours = Number(body.ttl_hours);
-                    if (!Number.isFinite(hours) || hours <= 0) return json({ error: "invalid ttl_hours" }, 400);
-                    v.ttl = Math.round(hours * 3600);
-                    v.created = nowSec();
+            if (body.interstitial_enabled !== undefined || body.interstitial_seconds !== undefined) {
+                const en = body.interstitial_enabled !== undefined ? toBool(body.interstitial_enabled) : v.interstitial_enabled;
+                v.interstitial_enabled = en;
+                if (!en) v.interstitial_seconds = 0;
+                else {
+                    const s = toIntOrNull(body.interstitial_seconds);
+                    v.interstitial_seconds = s && s > 0 ? s : 5;
                 }
             }
 
@@ -437,59 +289,30 @@ export default {
                 ok: true,
                 code,
                 status: meta.status,
-                valid: v.valid !== false,
-                interstitial_enabled: v.interstitial_enabled ?? false,
-                interstitial_seconds: v.interstitial_seconds ?? null,
-                ttl: v.ttl ?? null,
                 expiresAt: meta.expiresAt,
                 remaining: meta.remaining,
             });
         }
 
-        // ===== Redirect: GET /:code =====
+        // ---------- redirect ----------
+
         if (req.method === "GET" && path && !path.includes("/")) {
-            const code = path;
-            const raw = await env.LINKS.get(code, { type: "text" });
-            if (!raw) {
-                return new Response(renderInvalidHTML(url.host, code), {
-                    status: 404,
-                    headers: { "content-type": "text/html; charset=utf-8" },
-                });
-            }
-
-            let v: KVValue | null = null;
-            try {
-                v = JSON.parse(raw) as KVValue;
-            } catch {
-                v = null;
-            }
-            if (!v?.url) {
-                return new Response(renderInvalidHTML(url.host, code), {
-                    status: 404,
-                    headers: { "content-type": "text/html; charset=utf-8" },
-                });
-            }
-
+            const raw = await env.LINKS.get(path, { type: "text" });
+            if (!raw) return new Response(renderInvalidHTML(url.host, path), { status: 404 });
+            const v = JSON.parse(raw) as KVValue;
             const meta = computeMeta(v);
-            if (meta.status === "expired" || v.valid === false) {
-                return new Response(renderInvalidHTML(url.host, code), {
-                    status: 410,
-                    headers: { "content-type": "text/html; charset=utf-8" },
-                });
-            }
+            if (meta.status === "expired" || v.valid === false)
+                return new Response(renderInvalidHTML(url.host, path), { status: 410 });
 
             if (v.interstitial_enabled && v.interstitial_seconds && v.interstitial_seconds > 0) {
-                const interstitialHTML = renderInterstitialHTML(v.url, { seconds: v.interstitial_seconds });
-                return new Response(interstitialHTML, { headers: { "content-type": "text/html; charset=utf-8" } });
+                return new Response(renderInterstitialHTML(v.url, { seconds: v.interstitial_seconds }), {
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                });
             }
 
             return Response.redirect(v.url, 302);
         }
 
-        // 404
-        return new Response(renderUnauthorizedHTML(url.origin + "/"), {
-            status: 404,
-            headers: { "content-type": "text/html; charset=utf-8" },
-        });
+        return new Response(renderUnauthorizedHTML(url.origin + "/"), { status: 404 });
     },
 } satisfies ExportedHandler<Env>;
