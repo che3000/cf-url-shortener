@@ -22,7 +22,6 @@ const FAVICON_SVG = `<?xml version="1.0" encoding="UTF-8"?>
 				stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
-
 export interface Env {
     LINKS: KVNamespace;
     AUTHOR?: string;
@@ -32,11 +31,11 @@ export interface Env {
 
 type KVValue = {
     url: string;
-    created: number;     // epoch seconds
-    ttl?: number;        // seconds (undefined = 永久)
-    valid?: boolean;     // soft delete: false = 註銷
+    created: number; // epoch seconds
+    ttl?: number; // seconds (undefined = 永久)
+    valid?: boolean; // soft delete: false = 註銷
     interstitial_enabled: boolean;
-    interstitial_seconds?: number;
+    interstitial_seconds?: number; // seconds (0 = disable)
 };
 
 type KVListResult = {
@@ -45,16 +44,18 @@ type KVListResult = {
     cursor?: string;
 };
 
+type LinkStatus = "active" | "expiring" | "expired" | "invalid" | "missing";
+
 type ListedItem = {
-    code: string; 	// 短網址代碼
-    url?: string; 	// 原始網址
-    created?: number; // 建立時間（epoch seconds）
-    ttl?: number | null; // 有效秒數
-    expiresAt?: number | null; // 到期時間（epoch seconds）
-    status?: "active" | "expiring" | "expired" | "invalid"; // 短網址狀態
-    interstitial_enabled?: boolean; // 廣告開啟狀態
-    interstitial_seconds?: number | null; // 廣告秒數
-    remaining?: number | null; // 剩餘時間（秒）
+    code: string;
+    url?: string;
+    created?: number;
+    ttl?: number | null;
+    expiresAt?: number | null;
+    status?: LinkStatus;
+    interstitial_enabled?: boolean;
+    interstitial_seconds?: number | null;
+    remaining?: number | null;
 };
 
 const SOON_THRESHOLD_SEC = 3600;
@@ -75,7 +76,9 @@ const normalizeUrl = (raw?: string | null): string | null => {
         const u = new URL(s);
         if (u.protocol !== "http:" && u.protocol !== "https:") return null;
         return u.toString();
-    } catch { return null; }
+    } catch {
+        return null;
+    }
 };
 
 const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -98,54 +101,41 @@ const getBody = async (req: Request) => {
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
+// ===== Auth (Token + Cloudflare Access injected headers) =====
+
 const verifyToken = (req: Request, env: Env): boolean => {
-    if (!env.API_TOKEN) return true; // 未設定token則允許所有請求
+    // C2: 未設定 API_TOKEN，不允許走 token 路徑（避免誤開放）
+    if (!env.API_TOKEN) return false;
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
     return token === env.API_TOKEN;
 };
 
-const isZeroTrustAuthenticated = (req: Request): boolean => {
-    // 檢查 Cloudflare Zero Trust 的認證 cookies
-    const cookieHeader = req.headers.get("cookie") || "";
+const requireAuth = (req: Request, env: Env): boolean => verifyToken(req, env);
 
-    // 檢查 CF_Authorization cookie 是否存在且有效
-    const cfAuthMatch = cookieHeader.match(/CF_Authorization=([^;]+)/);
-    if (!cfAuthMatch) {
-        // 如果沒有 CF_Authorization，檢查 CF_AppSession
-        return cookieHeader.includes("CF_AppSession");
-    }
+// ===== CORS (same-origin) =====
 
-    const cfAuthToken = cfAuthMatch[1];
+const buildCors = (req: Request, origin: string) => {
+    const o = req.headers.get("origin") || "";
+    const allow = o && o === origin ? o : "";
+    return {
+        "access-control-allow-origin": allow,
+        vary: "origin",
+        "access-control-allow-headers": "authorization,content-type",
+        "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
+        "access-control-max-age": "86400",
+    };
+};
 
-    // CF_Authorization 通常是 JWT，嘗試解析並驗證過期時間
-    try {
-        // JWT 格式: header.payload.signature
-        const parts = cfAuthToken.split(".");
-        if (parts.length !== 3) return false;
+// ===== helpers (M1) =====
 
-        // 解碼 payload (第二部分)
-        const payload = parts[1];
-        // 補充 padding 如果需要
-        const padded = payload + "=".repeat((4 - payload.length % 4) % 4);
-        const decoded = JSON.parse(atob(padded)) as { exp?: number };
+const toBool = (v: unknown) => v === true || String(v).toLowerCase() === "true";
 
-        // 檢查過期時間 (exp 是 Unix 時間戳，單位為秒)
-        if (decoded.exp) {
-            const expiresAt = decoded.exp * 1000; // 轉換為毫秒
-            const now = Date.now();
-
-            // 如果已過期，返回 false
-            if (now > expiresAt) {
-                return false;
-            }
-        }
-
-        return true;
-    } catch (e) {
-        // 解析失敗，返回 false
-        return false;
-    }
+const toIntOrNull = (v: unknown) => {
+    if (v === null || v === "" || typeof v === "undefined") return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Math.floor(n);
 };
 
 function computeMeta(v: KVValue | null) {
@@ -165,30 +155,37 @@ export default {
         const url = new URL(req.url);
         const path = url.pathname.replace(/^\/+/, "");
 
+        // OPTIONS (L3 already fixed: no DELETE)
+        if (req.method === "OPTIONS") {
+            return new Response(null, { status: 204, headers: buildCors(req, url.origin) });
+        }
+
+        // favicon
         if (req.method === "GET" && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
             return new Response(FAVICON_SVG, {
                 headers: {
                     "content-type": "image/svg+xml; charset=utf-8",
-                    "cache-control": "public, max-age=86400"
-                }
+                    "cache-control": "public, max-age=86400",
+                },
             });
         }
 
-        // 提供 Tailwind CSS 樣式文件
+        // styles
         if (req.method === "GET" && url.pathname === "/styles.css") {
             return new Response(STYLES_CSS, {
                 headers: {
                     "content-type": "text/css; charset=utf-8",
-                    "cache-control": "no-cache, no-store, must-revalidate"
-                }
+                    "cache-control": "no-cache, no-store, must-revalidate",
+                },
             });
         }
 
-        // 僅 /admin 提供管理頁
+        // admin page (你已用 Zero Trust 保護 /admin*，此處不額外做 cookie/JWT 解析)
         if (req.method === "GET" && path === "admin") {
             return new Response(renderAdminHTML(), { headers: { "content-type": "text/html; charset=utf-8" } });
         }
 
+        // root page
         if (req.method === "GET" && path === "") {
             const author = env.AUTHOR ?? "";
             const contact = env.CONTACT ?? "";
@@ -197,29 +194,29 @@ export default {
             });
         }
 
-        // 建立：POST /api/links
+        // ===== API: POST /api/links =====
         if (req.method === "POST" && path === "api/links") {
-            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
-            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
-            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
+            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
+
             const body = (await getBody(req)) as {
                 url?: string;
                 code?: string;
                 ttl_hours?: number | string;
                 ttl?: number | string;
-                interstitial_enabled?: boolean;
-                interstitial_seconds?: number | string;
+                interstitial_enabled?: boolean | string;
+                interstitial_seconds?: number | string | null;
             };
+
             const longUrl = normalizeUrl(body.url);
             if (!longUrl) return json({ error: "invalid url" }, 400);
 
             let code = body.code?.trim();
 
-            if (code) { // 使用自訂 code
+            if (code) {
                 if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code format" }, 400);
                 const existing = await env.LINKS.get(code);
                 if (existing) return json({ error: "code already in use" }, 409);
-            } else { // 自動產生 code
+            } else {
                 let retries = 5;
                 let unique = false;
                 do {
@@ -234,16 +231,7 @@ export default {
                 if (!unique) return json({ error: "failed to generate a unique code" }, 500);
             }
 
-            // 處理插頁廣告秒數：如果啟用但沒有傳秒數，預設為5；未啟用則設為0
-            let interstitialSeconds = 0;
-            if (body.interstitial_enabled) {
-                if (body.interstitial_seconds && Number(body.interstitial_seconds) > 0) {
-                    interstitialSeconds = Number(body.interstitial_seconds);
-                } else {
-                    interstitialSeconds = 5;
-                }
-            }
-
+            // TTL
             let ttlSec: number | undefined;
             if (body.ttl_hours !== undefined && String(body.ttl_hours) !== "") {
                 const hours = Number(body.ttl_hours);
@@ -255,83 +243,129 @@ export default {
                 ttlSec = Math.round(ttl);
             }
 
+            // M1: interstitial parsing (consistent)
+            const enabled = toBool(body.interstitial_enabled);
+            let interstitialSeconds = 0;
+            if (enabled) {
+                const s = toIntOrNull(body.interstitial_seconds);
+                interstitialSeconds = s && s > 0 ? s : 5;
+            }
+
             const payload: KVValue = {
                 url: longUrl,
                 created: nowSec(),
                 ttl: ttlSec,
                 valid: true,
-                interstitial_enabled: String(body.interstitial_enabled ?? "") === "true" || body.interstitial_enabled === true,
+                interstitial_enabled: enabled,
                 interstitial_seconds: interstitialSeconds,
             };
-            await env.LINKS.put(code, JSON.stringify(payload));
+
+            await env.LINKS.put(code!, JSON.stringify(payload));
             const meta = computeMeta(payload);
+
             return json({
-                code, short: `${url.origin}/${code}`, url: longUrl,
-                ttl: payload.ttl ?? null, created: payload.created,
-                expiresAt: meta.expiresAt, status: meta.status, remaining: meta.remaining,
+                code,
+                short: `${url.origin}/${code}`,
+                url: longUrl,
+                ttl: payload.ttl ?? null,
+                created: payload.created,
+                expiresAt: meta.expiresAt,
+                status: meta.status,
+                remaining: meta.remaining,
                 interstitial_enabled: payload.interstitial_enabled,
-                interstitial_seconds: payload.interstitial_seconds,
+                interstitial_seconds: payload.interstitial_seconds ?? null,
             });
         }
 
-        // 讀單筆：GET /api/links/:code
+        // ===== API: GET /api/links/:code =====
         if (req.method === "GET" && path.startsWith("api/links/")) {
-            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
-            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
-            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
+            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
+
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
+
             const raw = await env.LINKS.get(code, { type: "text" });
             if (!raw) return json({ error: "not found" }, 404);
+
             let v: KVValue | null = null;
-            try { v = JSON.parse(raw) as KVValue; } catch { v = null; }
+            try {
+                v = JSON.parse(raw) as KVValue;
+            } catch {
+                v = null;
+            }
             if (!v?.url) return json({ error: "not found" }, 404);
+
             const meta = computeMeta(v);
             return json({
-                code, url: v.url, ttl: v.ttl ?? null, created: v.created,
-                expiresAt: meta.expiresAt, status: meta.status, remaining: meta.remaining,
+                code,
+                url: v.url,
+                ttl: v.ttl ?? null,
+                created: v.created,
+                expiresAt: meta.expiresAt,
+                status: meta.status,
+                remaining: meta.remaining,
                 valid: v.valid !== false,
                 interstitial_enabled: v.interstitial_enabled,
-                interstitial_seconds: v.interstitial_seconds ?? null
+                interstitial_seconds: v.interstitial_seconds ?? null,
             });
         }
 
-        // 列表：GET /api/links?limit=&cursor=&expand=1
+        // ===== API: GET /api/links?limit=&cursor=&expand=1 =====
         if (req.method === "GET" && path === "api/links") {
-            // 允許：有有效 token 或已通過 Zero Trust 認證
-            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
-            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
-            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
+            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
+
             const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") || "100")));
             const cursor = url.searchParams.get("cursor") || undefined;
             const expand = url.searchParams.get("expand") === "1";
-            const list = await env.LINKS.list({ limit, cursor }) as KVListResult;
-            let items: ListedItem[] = list.keys.map((k) => ({ code: k.name }));
-            if (expand && items.length) {
-                items = await Promise.all(items.map(async (it) => {
-                    const raw = await env.LINKS.get(it.code, { type: "text" });
-                    if (!raw) return { code: it.code, status: "expired" as const };
-                    let v: KVValue | null = null;
-                    try { v = JSON.parse(raw) as KVValue; } catch { v = null; }
-                    if (!v?.url) return { code: it.code, status: "expired" as const };
-                    const meta = computeMeta(v);
-                    return {
-                        code: it.code, url: v.url, created: v.created,
-                        ttl: v.ttl ?? null, expiresAt: meta.expiresAt,
-                        status: meta.status, remaining: meta.remaining,
-                        interstitial_enabled: v.interstitial_enabled ?? false,
-                        interstitial_seconds: v.interstitial_seconds ?? null
-                    };
-                }));
+
+            // L2: 防止 expand 造成大量 KV.get（你不想大改的情況下，先用硬上限）
+            if (expand && limit > 200) {
+                return json({ error: "expand too large; reduce limit to <= 200" }, 400);
             }
+
+            const list = (await env.LINKS.list({ limit, cursor })) as KVListResult;
+            let items: ListedItem[] = list.keys.map((k) => ({ code: k.name }));
+
+            if (expand && items.length) {
+                items = await Promise.all(
+                    items.map(async (it) => {
+                        const raw = await env.LINKS.get(it.code, { type: "text" });
+
+                        // L1: missing vs expired
+                        if (!raw) return { code: it.code, status: "missing" as const };
+
+                        let v: KVValue | null = null;
+                        try {
+                            v = JSON.parse(raw) as KVValue;
+                        } catch {
+                            v = null;
+                        }
+
+                        if (!v?.url) return { code: it.code, status: "missing" as const };
+
+                        const meta = computeMeta(v);
+                        return {
+                            code: it.code,
+                            url: v.url,
+                            created: v.created,
+                            ttl: v.ttl ?? null,
+                            expiresAt: meta.expiresAt,
+                            status: meta.status,
+                            remaining: meta.remaining,
+                            interstitial_enabled: v.interstitial_enabled ?? false,
+                            interstitial_seconds: v.interstitial_seconds ?? null,
+                        };
+                    })
+                );
+            }
+
             return json({ items, cursor: list.cursor || null, list_complete: list.list_complete });
         }
 
-        // 註銷/啟用 + 更新插頁廣告設定 + 更新到期時間：PATCH /api/links/:code
+        // ===== API: PATCH /api/links/:code =====
         if (req.method === "PATCH" && path.startsWith("api/links/")) {
-            const hasValidToken = verifyToken(req, env) && req.headers.get("authorization");
-            const hasZeroTrustAuth = isZeroTrustAuthenticated(req);
-            if (!hasValidToken && !hasZeroTrustAuth) return json({ error: "unauthorized" }, 401);
+            if (!requireAuth(req, env)) return json({ error: "unauthorized" }, 401);
+
             const code = path.split("/").pop() || "";
             if (!code) return json({ error: "invalid code" }, 400);
 
@@ -339,7 +373,11 @@ export default {
             if (!raw) return json({ error: "not found" }, 404);
 
             let v: KVValue | null = null;
-            try { v = JSON.parse(raw) as KVValue; } catch { v = null; }
+            try {
+                v = JSON.parse(raw) as KVValue;
+            } catch {
+                v = null;
+            }
             if (!v?.url) return json({ error: "not found" }, 404);
 
             const body = (await getBody(req)) as {
@@ -349,104 +387,86 @@ export default {
                 ttl_hours?: number | string | null;
             };
 
-            // 1) 作廢/啟用
+            // 1) invalidate/restore
             if (body.action === "invalidate") v.valid = false;
             else if (body.action === "restore") v.valid = true;
             else if (body.action != null) return json({ error: "invalid action" }, 400);
 
-            // 2) 插頁廣告設定（可單獨送或和 action 一起送）
-            const hasToggle =
-                typeof body.interstitial_enabled !== "undefined" &&
-                body.interstitial_enabled !== "";
-
-            const hasSeconds =
-                typeof body.interstitial_seconds !== "undefined";
+            // 2) interstitial (M1 consistent parsing)
+            const hasToggle = typeof body.interstitial_enabled !== "undefined" && body.interstitial_enabled !== "";
+            const hasSeconds = typeof body.interstitial_seconds !== "undefined";
 
             if (hasToggle || hasSeconds) {
-                // 初始化結構
-                if (!v.interstitial_enabled) v.interstitial_enabled = false;
-                // enabled：接受 "true"/"false" 或 boolean
-                if (hasToggle) {
-                    const enabled =
-                        body.interstitial_enabled === true ||
-                        String(body.interstitial_enabled).toLowerCase() === "true";
-                    v.interstitial_enabled = enabled;
-                }
-                // seconds：接受 number、字串數字；null/空字串代表設為 0
-                if (hasSeconds) {
-                    if (body.interstitial_seconds === null || body.interstitial_seconds === "") {
-                        // 設為 0 而不是刪除
+                const enabled = hasToggle ? toBool(body.interstitial_enabled) : (v.interstitial_enabled ?? false);
+                v.interstitial_enabled = enabled;
+
+                if (!enabled) {
+                    // 關閉時 seconds 一律設 0
+                    v.interstitial_seconds = 0;
+                } else if (hasSeconds) {
+                    const s = toIntOrNull(body.interstitial_seconds);
+                    if (s === null) {
                         v.interstitial_seconds = 0;
+                    } else if (s < 0) {
+                        return json({ error: "invalid interstitial_seconds" }, 400);
                     } else {
-                        const secNum = Number(body.interstitial_seconds);
-                        if (!Number.isFinite(secNum) || secNum < 0) {
-                            return json({ error: "invalid interstitial_seconds" }, 400);
-                        }
-                        v.interstitial_seconds = Math.floor(secNum);
+                        v.interstitial_seconds = s;
                     }
+                } else {
+                    // enabled=true 但沒傳 seconds：若原本是 0/undefined，給預設 5
+                    if (!v.interstitial_seconds || v.interstitial_seconds <= 0) v.interstitial_seconds = 5;
                 }
             }
 
-            // 3) 更新 TTL（到期時間）
+            // 3) TTL (你說不改：維持「更新 TTL 會重設 created」的行為)
             if (typeof body.ttl_hours !== "undefined") {
                 if (body.ttl_hours === null || body.ttl_hours === "") {
-                    // 設為永久
                     v.ttl = undefined;
                 } else {
                     const hours = Number(body.ttl_hours);
-                    if (!Number.isFinite(hours) || hours <= 0) {
-                        return json({ error: "invalid ttl_hours" }, 400);
-                    }
-                    // 更新 TTL 時，從現在開始重新計算
+                    if (!Number.isFinite(hours) || hours <= 0) return json({ error: "invalid ttl_hours" }, 400);
                     v.ttl = Math.round(hours * 3600);
-                    v.created = nowSec();  // 重設建立時間為現在
+                    v.created = nowSec();
                 }
             }
 
             await env.LINKS.put(code, JSON.stringify(v));
             const meta = computeMeta(v);
+
             return json({
                 ok: true,
                 code,
                 status: meta.status,
                 valid: v.valid !== false,
                 interstitial_enabled: v.interstitial_enabled ?? false,
-                interstitial_seconds: (v.interstitial_seconds ?? null),
+                interstitial_seconds: v.interstitial_seconds ?? null,
                 ttl: v.ttl ?? null,
                 expiresAt: meta.expiresAt,
                 remaining: meta.remaining,
             });
         }
 
-        if (req.method === "OPTIONS") {
-            return new Response(null, {
-                status: 204,
-                headers: {
-                    "access-control-allow-origin": "*",
-                    "access-control-allow-headers": "authorization,content-type,cf-access-client-id,cf-access-client-secret",
-                    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS,PATCH",
-                    "access-control-max-age": "86400",
-                },
-            });
-        }
-
-        // 處理短連結重導向：GET /:code
+        // ===== Redirect: GET /:code =====
         if (req.method === "GET" && path && !path.includes("/")) {
             const code = path;
             const raw = await env.LINKS.get(code, { type: "text" });
             if (!raw) {
                 return new Response(renderInvalidHTML(url.host, code), {
                     status: 404,
-                    headers: { "content-type": "text/html; charset=utf-8" }
+                    headers: { "content-type": "text/html; charset=utf-8" },
                 });
             }
 
             let v: KVValue | null = null;
-            try { v = JSON.parse(raw) as KVValue; } catch { v = null; }
+            try {
+                v = JSON.parse(raw) as KVValue;
+            } catch {
+                v = null;
+            }
             if (!v?.url) {
                 return new Response(renderInvalidHTML(url.host, code), {
                     status: 404,
-                    headers: { "content-type": "text/html; charset=utf-8" }
+                    headers: { "content-type": "text/html; charset=utf-8" },
                 });
             }
 
@@ -454,28 +474,22 @@ export default {
             if (meta.status === "expired" || v.valid === false) {
                 return new Response(renderInvalidHTML(url.host, code), {
                     status: 410,
-                    headers: { "content-type": "text/html; charset=utf-8" }
+                    headers: { "content-type": "text/html; charset=utf-8" },
                 });
             }
 
-            // 如果啟用插頁廣告，顯示插頁廣告頁面
             if (v.interstitial_enabled && v.interstitial_seconds && v.interstitial_seconds > 0) {
-                const interstitialHTML = renderInterstitialHTML(v.url, {
-                    seconds: v.interstitial_seconds
-                });
-                return new Response(interstitialHTML, {
-                    headers: { "content-type": "text/html; charset=utf-8" }
-                });
+                const interstitialHTML = renderInterstitialHTML(v.url, { seconds: v.interstitial_seconds });
+                return new Response(interstitialHTML, { headers: { "content-type": "text/html; charset=utf-8" } });
             }
 
-            // 直接重導向
             return Response.redirect(v.url, 302);
         }
 
-        // 404 - 顯示未授權訪問頁面並跳轉到首頁
+        // 404
         return new Response(renderUnauthorizedHTML(url.origin + "/"), {
             status: 404,
-            headers: { "content-type": "text/html; charset=utf-8" }
+            headers: { "content-type": "text/html; charset=utf-8" },
         });
     },
 } satisfies ExportedHandler<Env>;
