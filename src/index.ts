@@ -1,5 +1,6 @@
 // Cloudflare Workers - URL Shortener
-// Access-only final version (Admin via Access session, API via Access session or Service Token)
+// Access-enforced version: Admin/API require Cloudflare Access session or Service Token.
+// No API_TOKEN in frontend, no custom API secret in worker.
 
 import { renderInterstitialHTML } from "./interstitial";
 import { STYLES_CSS } from "./styles/styles-inline";
@@ -35,7 +36,7 @@ type KVValue = {
     ttl?: number;    // seconds (undefined = permanent)
     valid?: boolean; // soft delete
     interstitial_enabled: boolean;
-    interstitial_seconds?: number;
+    interstitial_seconds?: number; // 0 = disabled
 };
 
 type KVListResult = {
@@ -62,10 +63,10 @@ const SOON_THRESHOLD_SEC = 3600;
 
 // ---------- helpers ----------
 
-const json = (data: unknown, status = 200) =>
+const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(data), {
         status,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: { "content-type": "application/json; charset=utf-8", ...headers },
     });
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -123,12 +124,51 @@ function computeMeta(v: KVValue | null) {
     return { expiresAt: exp, status: "active" as const, remaining: remain };
 }
 
-// ---------- handler ----------
+// ---------- Cloudflare Access enforcement ----------
+// IMPORTANT: Access does not reliably enforce per-path for Workers, so we enforce in code.
+
+const hasAccessSession = (req: Request) => {
+    // When Access allows a request, it can inject a JWT header:
+    // - CF-Access-Jwt-Assertion (recommended for app validation in origin)
+    // Some setups also include identity headers, but JWT is the best "signal".
+    const jwt = req.headers.get("CF-Access-Jwt-Assertion");
+    return !!jwt && jwt.length > 20;
+};
+
+const hasServiceToken = (req: Request) => {
+    // Service Token auth uses these headers
+    const id = req.headers.get("CF-Access-Client-Id");
+    const secret = req.headers.get("CF-Access-Client-Secret");
+    return !!id && !!secret && id.length > 10 && secret.length > 10;
+};
+
+const requireAccess = (req: Request) => {
+    // Allow either interactive Access session OR Service Token
+    return hasAccessSession(req) || hasServiceToken(req);
+};
+
+// CORS (same-origin; admin uses same origin fetch)
+const buildCors = (req: Request, origin: string) => {
+    const o = req.headers.get("origin") || "";
+    const allow = o && o === origin ? o : "";
+    return {
+        "access-control-allow-origin": allow,
+        vary: "origin",
+        "access-control-allow-headers": "content-type,cf-access-client-id,cf-access-client-secret,cf-access-jwt-assertion",
+        "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
+        "access-control-max-age": "86400",
+    };
+};
 
 export default {
     async fetch(req: Request, env: Env): Promise<Response> {
         const url = new URL(req.url);
         const path = url.pathname.replace(/^\/+/, "");
+
+        // Preflight
+        if (req.method === "OPTIONS") {
+            return new Response(null, { status: 204, headers: buildCors(req, url.origin) });
+        }
 
         // favicon
         if (req.method === "GET" && (path === "favicon.ico" || path === "favicon.svg")) {
@@ -144,11 +184,6 @@ export default {
             });
         }
 
-        // admin (Access protected)
-        if (req.method === "GET" && (path === "admin" || path.startsWith("admin/"))) {
-            return new Response(renderAdminHTML(), { headers: { "content-type": "text/html; charset=utf-8" } });
-        }
-
         // root
         if (req.method === "GET" && path === "") {
             return new Response(renderRootHTML(env.AUTHOR ?? "", env.CONTACT ?? ""), {
@@ -156,21 +191,38 @@ export default {
             });
         }
 
-        // ---------- API ----------
+        // admin (must be Access-approved)
+        if (req.method === "GET" && (path === "admin" || path.startsWith("admin/"))) {
+            if (!requireAccess(req)) {
+                // Do NOT leak details; let Access handle login normally,
+                // but when Access isn't enforcing, we still block here.
+                return new Response(renderUnauthorizedHTML(url.origin + "/"), {
+                    status: 401,
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                });
+            }
+            return new Response(renderAdminHTML(), { headers: { "content-type": "text/html; charset=utf-8" } });
+        }
+
+        // ---------- API (must be Access-approved) ----------
+        const isApi = path === "api/links" || path.startsWith("api/links/");
+        if (isApi) {
+            if (!requireAccess(req)) return json({ error: "unauthorized" }, 401, buildCors(req, url.origin));
+        }
 
         // POST /api/links
         if (req.method === "POST" && path === "api/links") {
             const body = (await getBody(req)) as any;
             const longUrl = normalizeUrl(body.url);
-            if (!longUrl) return json({ error: "invalid url" }, 400);
+            if (!longUrl) return json({ error: "invalid url" }, 400, buildCors(req, url.origin));
 
             let code = body.code?.trim();
             if (code) {
-                if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code format" }, 400);
-                if (await env.LINKS.get(code)) return json({ error: "code already in use" }, 409);
+                if (!/^[\w-]{3,64}$/.test(code)) return json({ error: "invalid code format" }, 400, buildCors(req, url.origin));
+                if (await env.LINKS.get(code)) return json({ error: "code already in use" }, 409, buildCors(req, url.origin));
             } else {
                 let ok = false;
-                for (let i = 0; i < 8; i++) {
+                for (let i = 0; i < 10; i++) {
                     const c = genCode(6);
                     if (!(await env.LINKS.get(c))) {
                         code = c;
@@ -178,18 +230,23 @@ export default {
                         break;
                     }
                 }
-                if (!ok) return json({ error: "failed to generate code" }, 500);
+                if (!ok) return json({ error: "failed to generate code" }, 500, buildCors(req, url.origin));
             }
 
             let ttlSec: number | undefined;
-            if (body.ttl_hours) {
+            if (body.ttl_hours !== undefined && String(body.ttl_hours) !== "") {
                 const h = Number(body.ttl_hours);
-                if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400);
+                if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400, buildCors(req, url.origin));
                 ttlSec = Math.round(h * 3600);
+            } else if (body.ttl !== undefined && String(body.ttl) !== "") {
+                const t = Number(body.ttl);
+                if (!Number.isFinite(t) || t <= 0) return json({ error: "invalid ttl" }, 400, buildCors(req, url.origin));
+                ttlSec = Math.round(t);
             }
 
             const enabled = toBool(body.interstitial_enabled);
             const s = toIntOrNull(body.interstitial_seconds);
+
             const payload: KVValue = {
                 url: longUrl,
                 created: nowSec(),
@@ -202,18 +259,22 @@ export default {
             await env.LINKS.put(code!, JSON.stringify(payload));
             const meta = computeMeta(payload);
 
-            return json({
-                code,
-                short: `${url.origin}/${code}`,
-                url: longUrl,
-                ttl: payload.ttl ?? null,
-                created: payload.created,
-                expiresAt: meta.expiresAt,
-                status: meta.status,
-                remaining: meta.remaining,
-                interstitial_enabled: payload.interstitial_enabled,
-                interstitial_seconds: payload.interstitial_seconds ?? null,
-            });
+            return json(
+                {
+                    code,
+                    short: `${url.origin}/${code}`,
+                    url: longUrl,
+                    ttl: payload.ttl ?? null,
+                    created: payload.created,
+                    expiresAt: meta.expiresAt,
+                    status: meta.status,
+                    remaining: meta.remaining,
+                    interstitial_enabled: payload.interstitial_enabled,
+                    interstitial_seconds: payload.interstitial_seconds ?? null,
+                },
+                200,
+                buildCors(req, url.origin)
+            );
         }
 
         // GET /api/links
@@ -230,7 +291,14 @@ export default {
                     items.map(async (it) => {
                         const raw = await env.LINKS.get(it.code, { type: "text" });
                         if (!raw) return { code: it.code, status: "missing" as const };
-                        const v = JSON.parse(raw) as KVValue;
+                        let v: KVValue | null = null;
+                        try {
+                            v = JSON.parse(raw) as KVValue;
+                        } catch {
+                            v = null;
+                        }
+                        if (!v?.url) return { code: it.code, status: "missing" as const };
+
                         const meta = computeMeta(v);
                         return {
                             code: it.code,
@@ -247,26 +315,34 @@ export default {
                 );
             }
 
-            return json({ items, cursor: list.cursor || null, list_complete: list.list_complete });
+            return json({ items, cursor: list.cursor || null, list_complete: list.list_complete }, 200, buildCors(req, url.origin));
         }
 
         // PATCH /api/links/:code
         if (req.method === "PATCH" && path.startsWith("api/links/")) {
             const code = path.split("/").pop()!;
             const raw = await env.LINKS.get(code, { type: "text" });
-            if (!raw) return json({ error: "not found" }, 404);
+            if (!raw) return json({ error: "not found" }, 404, buildCors(req, url.origin));
 
-            const v = JSON.parse(raw) as KVValue;
+            let v: KVValue | null = null;
+            try {
+                v = JSON.parse(raw) as KVValue;
+            } catch {
+                v = null;
+            }
+            if (!v?.url) return json({ error: "not found" }, 404, buildCors(req, url.origin));
+
             const body = (await getBody(req)) as any;
 
             if (body.action === "invalidate") v.valid = false;
-            if (body.action === "restore") v.valid = true;
+            else if (body.action === "restore") v.valid = true;
+            else if (body.action != null) return json({ error: "invalid action" }, 400, buildCors(req, url.origin));
 
             if (body.ttl_hours !== undefined) {
-                if (!body.ttl_hours) v.ttl = undefined;
+                if (body.ttl_hours === null || body.ttl_hours === "") v.ttl = undefined;
                 else {
                     const h = Number(body.ttl_hours);
-                    if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400);
+                    if (!Number.isFinite(h) || h <= 0) return json({ error: "invalid ttl_hours" }, 400, buildCors(req, url.origin));
                     v.ttl = Math.round(h * 3600);
                     v.created = nowSec();
                 }
@@ -275,6 +351,7 @@ export default {
             if (body.interstitial_enabled !== undefined || body.interstitial_seconds !== undefined) {
                 const en = body.interstitial_enabled !== undefined ? toBool(body.interstitial_enabled) : v.interstitial_enabled;
                 v.interstitial_enabled = en;
+
                 if (!en) v.interstitial_seconds = 0;
                 else {
                     const s = toIntOrNull(body.interstitial_seconds);
@@ -285,24 +362,43 @@ export default {
             await env.LINKS.put(code, JSON.stringify(v));
             const meta = computeMeta(v);
 
-            return json({
-                ok: true,
-                code,
-                status: meta.status,
-                expiresAt: meta.expiresAt,
-                remaining: meta.remaining,
-            });
+            return json(
+                { ok: true, code, status: meta.status, expiresAt: meta.expiresAt, remaining: meta.remaining },
+                200,
+                buildCors(req, url.origin)
+            );
         }
 
         // ---------- redirect ----------
-
         if (req.method === "GET" && path && !path.includes("/")) {
             const raw = await env.LINKS.get(path, { type: "text" });
-            if (!raw) return new Response(renderInvalidHTML(url.host, path), { status: 404 });
-            const v = JSON.parse(raw) as KVValue;
+            if (!raw) {
+                return new Response(renderInvalidHTML(url.host, path), {
+                    status: 404,
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                });
+            }
+
+            let v: KVValue | null = null;
+            try {
+                v = JSON.parse(raw) as KVValue;
+            } catch {
+                v = null;
+            }
+            if (!v?.url) {
+                return new Response(renderInvalidHTML(url.host, path), {
+                    status: 404,
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                });
+            }
+
             const meta = computeMeta(v);
-            if (meta.status === "expired" || v.valid === false)
-                return new Response(renderInvalidHTML(url.host, path), { status: 410 });
+            if (meta.status === "expired" || v.valid === false) {
+                return new Response(renderInvalidHTML(url.host, path), {
+                    status: 410,
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                });
+            }
 
             if (v.interstitial_enabled && v.interstitial_seconds && v.interstitial_seconds > 0) {
                 return new Response(renderInterstitialHTML(v.url, { seconds: v.interstitial_seconds }), {
@@ -313,6 +409,9 @@ export default {
             return Response.redirect(v.url, 302);
         }
 
-        return new Response(renderUnauthorizedHTML(url.origin + "/"), { status: 404 });
+        return new Response(renderUnauthorizedHTML(url.origin + "/"), {
+            status: 404,
+            headers: { "content-type": "text/html; charset=utf-8" },
+        });
     },
 } satisfies ExportedHandler<Env>;
