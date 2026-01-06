@@ -124,29 +124,6 @@ function computeMeta(v: KVValue | null) {
     return { expiresAt: exp, status: "active" as const, remaining: remain };
 }
 
-// ---------- Cloudflare Access enforcement ----------
-// IMPORTANT: Access does not reliably enforce per-path for Workers, so we enforce in code.
-
-const hasAccessSession = (req: Request) => {
-    // When Access allows a request, it can inject a JWT header:
-    // - CF-Access-Jwt-Assertion (recommended for app validation in origin)
-    // Some setups also include identity headers, but JWT is the best "signal".
-    const jwt = req.headers.get("CF-Access-Jwt-Assertion");
-    return !!jwt && jwt.length > 20;
-};
-
-const hasServiceToken = (req: Request) => {
-    // Service Token auth uses these headers
-    const id = req.headers.get("CF-Access-Client-Id");
-    const secret = req.headers.get("CF-Access-Client-Secret");
-    return !!id && !!secret && id.length > 10 && secret.length > 10;
-};
-
-const requireAccess = (req: Request) => {
-    // Allow either interactive Access session OR Service Token
-    return hasAccessSession(req) || hasServiceToken(req);
-};
-
 // CORS (same-origin; admin uses same origin fetch)
 const buildCors = (req: Request, origin: string) => {
     const o = req.headers.get("origin") || "";
@@ -154,7 +131,7 @@ const buildCors = (req: Request, origin: string) => {
     return {
         "access-control-allow-origin": allow,
         vary: "origin",
-        "access-control-allow-headers": "content-type,cf-access-client-id,cf-access-client-secret,cf-access-jwt-assertion",
+        "access-control-allow-headers": "content-type",
         "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
         "access-control-max-age": "86400",
     };
@@ -193,21 +170,7 @@ export default {
 
         // admin (must be Access-approved)
         if (req.method === "GET" && (path === "admin" || path.startsWith("admin/"))) {
-            if (!requireAccess(req)) {
-                // Do NOT leak details; let Access handle login normally,
-                // but when Access isn't enforcing, we still block here.
-                return new Response(renderUnauthorizedHTML(url.origin + "/"), {
-                    status: 401,
-                    headers: { "content-type": "text/html; charset=utf-8" },
-                });
-            }
             return new Response(renderAdminHTML(), { headers: { "content-type": "text/html; charset=utf-8" } });
-        }
-
-        // ---------- API (must be Access-approved) ----------
-        const isApi = path === "api/links" || path.startsWith("api/links/");
-        if (isApi) {
-            if (!requireAccess(req)) return json({ error: "unauthorized" }, 401, buildCors(req, url.origin));
         }
 
         // POST /api/links
