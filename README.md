@@ -90,7 +90,7 @@ cp wrangler.toml.sample wrangler.toml
 | `routes` | 例如 `s.<your-domain>/*` |
 | `vars` |（可選）頁尾作者名稱、Email |
 
-範例（可直接複製）：
+範例：
 
 ```toml
 name = "cf-url-shortener"
@@ -108,6 +108,13 @@ zone_name = "<your-domain>"
 [vars]
 AUTHOR = "Your-Name"
 CONTACT = "your@gmail.com"
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
 ```
 
 ### 2-2⃣ 建立 `secrets.json`

@@ -14,3 +14,10 @@ zone_name = "<your-domain>"
 [vars]
 AUTHOR = "Your-Name"
 CONTACT = "your@gmail.com"
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
