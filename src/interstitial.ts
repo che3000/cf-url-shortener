@@ -10,7 +10,7 @@ export type InterstitialOptions = {
 export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOptions = {}) {
   const s = Math.max(0, Number(opts.seconds ?? 3));
   const title = opts.title ?? "即將為您跳轉…";
-  const msg = opts.message ?? "請稍候，正在帶您前往目的地。";
+  const msg = opts.message ?? "請稍候，正在帶您前往目的地";
   const naruto = opts.naruto ?? "木葉飛舞之處，火亦生生不息";
   const logo = opts.logoSvg ?? "🥷";
 
