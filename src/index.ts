@@ -335,7 +335,18 @@ async function handlePatchLink(req: Request, env: Env, origin: string, code: str
     const meta = computeMeta(v);
 
     return json(
-        { ok: true, code, status: meta.status, expiresAt: meta.expiresAt, remaining: meta.remaining },
+        {
+            ok: true,
+            code,
+            status: meta.status,
+            expiresAt: meta.expiresAt,
+            remaining: meta.remaining,
+            // return updated fields for client UI to reflect changes
+            ttl: v.ttl ?? null,
+            created: v.created,
+            interstitial_enabled: v.interstitial_enabled,
+            interstitial_seconds: v.interstitial_seconds ?? null,
+        },
         200,
         buildCors(req, origin)
     );

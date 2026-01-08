@@ -223,7 +223,8 @@ function renderList() {
 		const actionAttrs = isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : "";
 		const actionClasses = isExpired ? "btn disabled:opacity-50" : isInvalid ? "btn btn-primary" : "btn";
 
-		const disabledAttr = isExpired ? 'disabled aria-disabled="true" title="已過期不可編輯"' : '';
+		// 允許編輯已過期的短網址（可延長 TTL 或調整設定）
+		const disabledAttr = '';
 		
 		const isMobile = window.innerWidth < 768;
 		const displayUrl = fmtUrl(item.url, isMobile);
@@ -415,9 +416,10 @@ modalSave.addEventListener("click", async () => {
 		const updated = await res.json();
 		const idx = allLinks.findIndex(i => i.code === editingCode);
 		if (idx > -1) {
-			allLinks[idx].interstitial_enabled = updated.interstitial_enabled;
-			allLinks[idx].interstitial_seconds = updated.interstitial_seconds;
+			if (updated.interstitial_enabled !== undefined) allLinks[idx].interstitial_enabled = updated.interstitial_enabled;
+			if (updated.interstitial_seconds !== undefined) allLinks[idx].interstitial_seconds = updated.interstitial_seconds;
 			if (updated.ttl !== undefined) allLinks[idx].ttl = updated.ttl;
+			if (updated.created !== undefined) allLinks[idx].created = updated.created;
 			if (updated.expiresAt !== undefined) allLinks[idx].expiresAt = updated.expiresAt;
 			if (updated.status !== undefined) allLinks[idx].status = updated.status;
 			if (updated.remaining !== undefined) allLinks[idx].remaining = updated.remaining;
