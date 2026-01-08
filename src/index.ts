@@ -80,10 +80,47 @@ const normalizeUrl = (raw?: string | null): string | null => {
     if (!raw) return null;
     let s = String(raw).trim();
     if (!s) return null;
-    if (!/^[a-zA-Z][\w+.-]*:/.test(s)) s = `https://${s}`;
+
+    // 先從原始字串抓出「看起來像 host 的部分」，用來做前置過濾
+    // 去掉前綴 protocol://（如果有）
+    const withoutProtocol = s.replace(/^[a-zA-Z][\w+.-]*:\/\//, "");
+    // host = 第一個 / ? # 前面的那段
+    const hostPart = withoutProtocol.split(/[/?#]/, 1)[0];
+
+    // 1. host 必須存在
+    if (!hostPart) return null;
+
+    // 2. host 只允許 ASCII 英數字 + . -
+    //    => 禁止中文、全形、其他 Unicode 字元
+    if (!/^[a-zA-Z0-9.-]+$/.test(hostPart)) {
+        return null;
+    }
+
+    // 3. 禁止 punycode 形式的 label（例如 xn--xxxx）
+    const labels = hostPart.split(".");
+    if (labels.some(label => label.toLowerCase().startsWith("xn--"))) {
+        return null;
+    }
+
+    // 4. 若沒有 protocol，自動補上 https://
+    if (!/^[a-zA-Z][\w+.-]*:/.test(s)) {
+        s = `https://${s}`;
+    }
+
     try {
         const u = new URL(s);
+
+        // 5. 僅接受 http / https
         if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+
+        // 6. 解析後再對 hostname 做一次保險檢查（避免奇怪邊界情況）
+        const host = u.hostname;
+        if (!host) return null;
+        if (!/^[a-zA-Z0-9.-]+$/.test(host)) return null;
+        if (host.split(".").some(label => label.toLowerCase().startsWith("xn--"))) {
+            return null;
+        }
+
         return u.toString();
     } catch {
         return null;
