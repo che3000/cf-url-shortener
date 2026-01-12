@@ -9,8 +9,10 @@ export const renderRootHTML = (author: string, contact: string) => `<!doctype ht
 		<p>這裡沒有內容。</p>
         <p>別在探索的時候遺失了自我。</p>
 	</div>
-	<footer style="position:fixed;bottom:1rem;left:0;width:100%;text-align:center;font-size:.75rem;color:#888">
+	<footer style="position:fixed;bottom:1rem;left:0;right:0">
+		<div style="max-width:720px;margin:0 auto;text-align:center;font-size:.75rem;color:#888">
 			<p>${author ? author : ""}</p>
-			<p>${contact ? contact : ""}<p>
+			<p>${contact ? contact : ""}</p>
+		</div>
 	</footer>
 </body></html>`;
