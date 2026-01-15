@@ -126,7 +126,7 @@ persist = true
 cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
 
-再依「🔐 設定 Zero Trust」章節建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `secrets.json`。
+再依「🔐 設定 Zero Trust」章節建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `cloudflare_secrets.json`。
 
 ### 2-3 Zero Trust 路徑保護說明
 本專案採「Access-only」模型，Worker 本身不實作任何身份驗證。請於後續「🔐 設定 Zero Trust」章節，為 `/admin*` 與 `/api/*` 分別建立 Access 應用並以路徑強制保護。
@@ -217,11 +217,11 @@ npm run watch:css
 | 服務 Token 持續時間 | 沒有期限 |
 2. 產生 Token（取得 Client Id 與 Client Secret）
 
-3. 於專案根目錄建立 `secrets.json`（從範本複製後填值）
+3. 於專案根目錄建立 `cloudflare_secrets.json`（從範本複製後填值）
 ```bash
-cp secrets.json.sample secrets.json
+cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
-請手動更新 `secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，並將檔案丟到 `iCloud/Downloads`。
+請手動更新 `cloudflare_secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，並將檔案丟到 `iCloud/Downloads`。
 Shortcut檔案還在驗證，下一版本會更新．
 範例
 ```json
@@ -321,7 +321,7 @@ Shortcut檔案還在驗證，下一版本會更新．
 PowerShell 使用範例（讀取 secrets.json 呼叫 API）：
 
 ```powershell
-$cfg = Get-Content .\secrets.json | ConvertFrom-Json
+$cfg = Get-Content .\cloudflare_secrets.json | ConvertFrom-Json
 
 curl -X POST $cfg.api.base_url ^
   -H "CF-Access-Client-Id: $($cfg.auth.'CF-Access-Client-Id')" ^
@@ -335,7 +335,7 @@ Node.js 使用範例（Node 18+）：
 ```js
 import fs from 'node:fs/promises'
 
-const cfg = JSON.parse(await fs.readFile('./secrets.json', 'utf8'))
+const cfg = JSON.parse(await fs.readFile('./cloudflare_secrets.json', 'utf8'))
 const res = await fetch(cfg.api.base_url, {
   method: 'POST',
   headers: {
