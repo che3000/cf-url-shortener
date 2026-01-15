@@ -4,7 +4,7 @@ compatibility_date = "2025-11-02"
 
 # 透過 `wrangler kv:namespace create "LINKS"` 取得 id 後填入
 kv_namespaces = [
-  { binding = "LINKS", id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+  { binding = "LINKS", id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
 ]
 
 [[routes]]
