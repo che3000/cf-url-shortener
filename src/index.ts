@@ -341,6 +341,7 @@ async function handlePatchLink(req: Request, env: Env, origin: string, code: str
             status: meta.status,
             expiresAt: meta.expiresAt,
             remaining: meta.remaining,
+            valid: v.valid !== false,
             // return updated fields for client UI to reflect changes
             ttl: v.ttl ?? null,
             created: v.created,
