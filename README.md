@@ -221,8 +221,8 @@ npm run watch:css
 ```bash
 cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
-請手動更新 `cloudflare_secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，並將檔案丟到 `iCloud/Downloads`。
-Shortcut檔案還在驗證，下一版本會更新．
+請手動更新 `cloudflare_secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，如需給捷徑使用可放到 `iCloud/Downloads`。
+Shortcut 檔案仍在驗證中，下一版本會更新。
 範例
 ```json
 {
@@ -526,7 +526,7 @@ GNU General Public License v3
 
 ---
 
-## ✅完成
+## ✅ 完成
 
 你現在擁有：
 

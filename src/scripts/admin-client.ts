@@ -21,6 +21,10 @@ const PAGE_SIZE = 100;
 let editingCode = null;
 let countdownElements = [];
 let isLoading = false;
+const sortKeyMap = {
+	interstitial: "interstitial_enabled",
+	interstitialSeconds: "interstitial_seconds"
+};
 
 const showToast = (message, type = 'success') => {
 	const existingToast = document.querySelector('.toast');
@@ -174,8 +178,11 @@ function renderList() {
 	let filtered = allLinks.filter(item => activeFilters.includes(item.status));
 
 	filtered.sort((a, b) => {
-		let valA = a[currentSort.key];
-		let valB = b[currentSort.key];
+		const sortKey = sortKeyMap[currentSort.key] || currentSort.key;
+		let valA = a[sortKey];
+		let valB = b[sortKey];
+		if (typeof valA === "boolean") valA = valA ? 1 : 0;
+		if (typeof valB === "boolean") valB = valB ? 1 : 0;
 		if (valA === null || valA === undefined) valA = -Infinity;
 		if (valB === null || valB === undefined) valB = -Infinity;
 
