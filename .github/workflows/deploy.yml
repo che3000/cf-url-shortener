@@ -23,6 +23,33 @@ jobs:
       - name: Build (Tailwind + typecheck)
         run: npm run build
 
+      - name: Create wrangler.toml
+        run: |
+          cat > wrangler.toml <<EOF
+          name = "cf-url-shortener"
+          main = "src/index.ts"
+          compatibility_date = "2026-04-10"
+
+          kv_namespaces = [
+            { binding = "LINKS", id = "${{ secrets.CF_KV_NAMESPACE_ID }}" }
+          ]
+
+          [[routes]]
+          pattern = "s.che3000s.com/*"
+          zone_name = "che3000s.com"
+
+          [vars]
+          AUTHOR = "Ching-Yuan Huang"
+          CONTACT = "hcy6406@gmail.com"
+
+          [observability]
+          [observability.logs]
+          enabled = true
+          head_sampling_rate = 1
+          invocation_logs = true
+          persist = true
+          EOF
+
       - name: Deploy to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
