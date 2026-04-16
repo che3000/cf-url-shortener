@@ -99,10 +99,10 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
         return;
       }
       
-      // 檢查剩餘秒數是否超過原始秒數的 80%
+      // 檢查剩餘秒數是否超過原始秒數的 90%
       const remainingPercentage = (sec / originalSec) * 100;
       
-      if (remainingPercentage > 80 && originalSec > 0) {
+      if (remainingPercentage > 90 && originalSec > 0) {
         // 標記正在處理中
         skipInProgress = true;
         const skipBtn = document.getElementById('skip');
@@ -111,13 +111,13 @@ export function renderInterstitialHTML(targetUrl: string, opts: InterstitialOpti
           skipBtn.style.opacity = '0.6';
         }
         
-        // 加罰 10 秒
-        sec += 10;
+        // 加罰 3 秒
+        sec += 3;
         
         // 顯示警告訊息
         const msgEl = document.getElementById('penalty-msg');
         if (msgEl) {
-          msgEl.textContent = '沒耐心的人們，加罰10秒';
+          msgEl.textContent = '太快了啦，加罰3秒';
           msgEl.style.display = 'block';
           
           // 清除舊的計時器
