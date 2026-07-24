@@ -11,6 +11,5 @@
     "types": ["@cloudflare/workers-types"],
     "skipLibCheck": true
   },
-  "include": ["src"],
-  "exclude": ["src/scripts/admin-client.ts"]
+  "include": ["src"]
 }
