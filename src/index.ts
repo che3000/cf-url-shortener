@@ -76,33 +76,33 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
-const normalizeUrl = (raw?: string | null): string | null => {
+const isValidHostname = (hostname: string) => {
+    if (!hostname) return false;
+    if (hostname === "localhost") return true;
+
+    const ipv4 = hostname.split(".");
+    if (ipv4.length === 4 && ipv4.every((part) => /^\\d+$/.test(part))) {
+        return ipv4.every((part) => {
+            const n = Number(part);
+            return part === String(n) && n >= 0 && n <= 255;
+        });
+    }
+
+    // Accept IPv6 addresses produced by the URL parser.
+    if (/^[0-9A-Fa-f:.]+$/.test(hostname) && hostname.includes(":")) {
+        return true;
+    }
+
+    // Strict domain validation: require at least one dot and valid label syntax.
+    return /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(hostname);
+};
+
+export const normalizeUrl = (raw?: string | null): string | null => {
     if (!raw) return null;
     let s = String(raw).trim();
     if (!s) return null;
 
-    // 先從原始字串抓出「看起來像 host 的部分」，用來做前置過濾
-    // 去掉前綴 protocol://（如果有）
-    const withoutProtocol = s.replace(/^[a-zA-Z][\w+.-]*:\/\//, "");
-    // host = 第一個 / ? # 前面的那段
-    const hostPart = withoutProtocol.split(/[/?#]/, 1)[0];
-
-    // 1. host 必須存在
-    if (!hostPart) return null;
-
-    // 2. host 只允許 ASCII 英數字 + . -
-    //    => 禁止中文、全形、其他 Unicode 字元
-    if (!/^[a-zA-Z0-9.-]+$/.test(hostPart)) {
-        return null;
-    }
-
-    // 3. 禁止 punycode 形式的 label（例如 xn--xxxx）
-    const labels = hostPart.split(".");
-    if (labels.some(label => label.toLowerCase().startsWith("xn--"))) {
-        return null;
-    }
-
-    // 4. 若沒有 protocol，自動補上 https://
+    // 若沒有 protocol，自動補上 https://
     if (!/^[a-zA-Z][\w+.-]*:/.test(s)) {
         s = `https://${s}`;
     }
@@ -110,16 +110,14 @@ const normalizeUrl = (raw?: string | null): string | null => {
     try {
         const u = new URL(s);
 
-        // 5. 僅接受 http / https
+        // 僅接受 http / https
         if (u.protocol !== "http:" && u.protocol !== "https:") return null;
 
-        // 6. 解析後再對 hostname 做一次保險檢查（避免奇怪邊界情況）
-        const host = u.hostname;
-        if (!host) return null;
-        if (!/^[a-zA-Z0-9.-]+$/.test(host)) return null;
-        if (host.split(".").some(label => label.toLowerCase().startsWith("xn--"))) {
-            return null;
-        }
+        // hostname 必須存在，並且符合嚴格 host 名稱格式。
+        if (!isValidHostname(u.hostname)) return null;
+
+        // 不接受帶有使用者/密碼的 URL。
+        if (u.username || u.password) return null;
 
         return u.toString();
     } catch {
@@ -154,7 +152,7 @@ const toIntOrNull = (v: unknown) => {
     return Math.floor(n);
 };
 
-function computeMeta(v: KVValue | null) {
+export function computeMeta(v: KVValue | null) {
     if (!v) return { expiresAt: null, status: "expired" as const, remaining: null };
     if (v.valid === false) return { expiresAt: null, status: "invalid" as const, remaining: null };
     if (!v.ttl) return { expiresAt: null, status: "active" as const, remaining: null };

@@ -4,28 +4,32 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "lint": "eslint --ext .ts src",
     "build:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --minify && node ./scripts/generate-inline-css.mjs",
     "watch:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --watch",
     "dev": "npm run build:css && wrangler dev",
     "build": "npm run build:css && tsc --noEmit",
     "deploy": "npm run build && wrangler deploy",
     "ci-deploy": "npm run build && npx wrangler@latest deploy --api-token $CF_API_TOKEN",
-    "typecheck": "npm run build:css && tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run build:css && npm run lint && npm run typecheck"
   },
   "keywords": [],
   "author": "",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251014.0",
+    "@cloudflare/workers-types": "^5.20260724.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.6",
+    "eslint": "^8.57.0",
+    "happy-dom": "^20.11.1",
+    "postcss": "^8.5.22",
     "tailwindcss": "^3.4.18",
     "typescript": "^5.9.3",
-    "wrangler": "^4.82.2"
-  },
-  "overrides": {
-    "undici": "7.24.0"
+    "vitest": "^4.1.10",
+    "wrangler": "4.114.0"
   }
 }

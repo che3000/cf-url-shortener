@@ -1,6 +1,3 @@
-// Admin page client-side JavaScript
-// Exported as plain string to avoid template literal escaping issues
-
 export const ADMIN_CLIENT_JS = `
 const base = location.origin;
 const $ = (s)=>document.querySelector(s);
@@ -31,10 +28,6 @@ const PAGE_SIZE = 100;
 let editingCode = null;
 let countdownElements = [];
 let isLoading = false;
-const sortKeyMap = {
-	interstitial: "interstitial_enabled",
-	interstitialSeconds: "interstitial_seconds"
-};
 
 const showToast = (message, type = 'success') => {
 	const existingToast = document.querySelector('.toast');
@@ -107,17 +100,15 @@ const fmtTime = (t)=> {
 const fmtUrl = (url, isMobile = false) => {
 	if (!url) return '';
 	if (!isMobile) {
-		// 桌面版：限制最多顯示 40 個字元
 		if (url.length > 40) {
 			return url.substring(0, 40) + '...';
 		}
 		return url;
 	}
-	let cleaned = url.replace(/^https?:[/][/]/, '');
-	cleaned = cleaned.replace(/^www[.]/, '');
-	cleaned = cleaned.replace(/[/]$/, '');
+	let cleaned = url.replace(/^https?:\/\//, '');
+	cleaned = cleaned.replace(/^www\./, '');
+	cleaned = cleaned.replace(/\/$/, '');
 	
-	// 手機版：限制最多顯示 25 個字元
 	if (cleaned.length > 25) {
 		return cleaned.substring(0, 25) + '...';
 	}
@@ -188,11 +179,8 @@ function renderList() {
 	let filtered = allLinks.filter(item => activeFilters.includes(item.status));
 
 	filtered.sort((a, b) => {
-		const sortKey = sortKeyMap[currentSort.key] || currentSort.key;
-		let valA = a[sortKey];
-		let valB = b[sortKey];
-		if (typeof valA === "boolean") valA = valA ? 1 : 0;
-		if (typeof valB === "boolean") valB = valB ? 1 : 0;
+		let valA = a[currentSort.key];
+		let valB = b[currentSort.key];
 		if (valA === null || valA === undefined) valA = -Infinity;
 		if (valB === null || valB === undefined) valB = -Infinity;
 
@@ -216,8 +204,8 @@ function renderList() {
 	
 	pageData.forEach(item => {
 		const badgeClass = item.status==="active" ? "green" :
-											 item.status==="expiring" ? "amber" :
-											 item.status==="invalid" ? "gray" : "red";
+						 item.status==="expiring" ? "amber" :
+						 item.status==="invalid" ? "gray" : "red";
 		const isExpired = item.status === "expired";
 		const isInvalid = item.status === "invalid";
 
@@ -230,7 +218,6 @@ function renderList() {
 			remainDisplay = "N/A";
 			remainAttrs = "";
 		} else {
-			// 計算初始剩餘時間，避免空白閃爍
 			const now = Math.floor(Date.now() / 1000);
 			const left = Math.max(0, item.expiresAt - now);
 			remainDisplay = fmt(left);
@@ -240,7 +227,6 @@ function renderList() {
 		const actionAttrs = isExpired ? 'disabled aria-disabled="true" title="已過期不可操作"' : "";
 		const actionClasses = isExpired ? "btn disabled:opacity-50" : isInvalid ? "btn btn-primary" : "btn";
 
-		// 允許編輯已過期的短網址（可延長 TTL 或調整設定）
 		const disabledAttr = '';
 		
 		const isMobile = window.innerWidth < 768;
