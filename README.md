@@ -17,6 +17,8 @@
 | 📱 iPhone快速使用 | 使用 Cloudflare Service Token 與 Apple Shortcut 實現免登入即可新增客製化超連結 |
 | 🌐 自訂網域 | 預設使用 `s.<yourdomain>/xxxxx` |
 
+管理後台頁首提供「登出」按鈕，會前往同網域的 `/cdn-cgi/access/logout`，由 Cloudflare Access 清除登入 Cookie 並撤銷工作階段。依 [Cloudflare 官方說明](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)，此操作也會登出同一 Access 工作階段下的其他應用程式，已發出的 Token 約需 20–30 秒才會停止被接受。登出功能需在已設定 Cloudflare Access 的部署網域驗證，本機開發環境不提供此端點。
+
 ---
 
 ## 📦 部署流程（從零開始）

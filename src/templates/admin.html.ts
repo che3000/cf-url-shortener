@@ -12,9 +12,12 @@ export const renderAdminHTML = () => `<!doctype html>
 </head>
 <body class="bg-slate-50">
 	<div class="container-wrapper mx-auto p-6 space-y-6">
-		<header>
-			<h1 class="text-2xl font-semibold tracking-tight">URL Shortener</h1>
-			<p class="text-slate-600">已由 Cloudflare Access 保護</p>
+		<header class="flex flex-wrap items-center justify-between gap-3">
+			<div>
+				<h1 class="text-2xl font-semibold tracking-tight">URL Shortener</h1>
+				<p class="text-slate-600">已由 Cloudflare Access 保護</p>
+			</div>
+			<a href="/cdn-cgi/access/logout" class="btn inline-flex items-center justify-center bg-white whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-600">登出</a>
 		</header>
 
 		<section class="card p-5">
