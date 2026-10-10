@@ -3,7 +3,8 @@ set -euo pipefail
 
 printf "
 Simple deploy script for cf-url-shortener
-Usage: export CF_API_TOKEN=token && ./scripts/deploy.sh
+Usage: export CLOUDFLARE_API_TOKEN=token && ./scripts/deploy.sh
+CF_API_TOKEN is also accepted for compatibility.
 Or run and paste token when prompted.
 \n"
 
@@ -22,10 +23,15 @@ if ! command -v npx >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -z "${CF_API_TOKEN-}" ]; then
+if [ -z "${CF_API_TOKEN-}" ] && [ -z "${CLOUDFLARE_API_TOKEN-}" ]; then
   read -rsp $'Enter Cloudflare API token (input hidden, press Enter when done): ' CF_API_TOKEN
   echo
 fi
+
+if [ -z "${CLOUDFLARE_API_TOKEN-}" ] && [ -n "${CF_API_TOKEN-}" ]; then
+  export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"
+fi
+unset CF_API_TOKEN
 
 echo "Installing dependencies..."
 npm ci
@@ -33,12 +39,10 @@ npm ci
 echo "Building (Tailwind CSS + typecheck)..."
 npm run build
 
+echo "Checking Cloudflare Access protection..."
+npm run check:access
+
 echo "Deploying to Cloudflare..."
-if [ -n "${CF_API_TOKEN-}" ]; then
-  npx wrangler@latest deploy --api-token "$CF_API_TOKEN"
-else
-  echo "No CF_API_TOKEN provided; running interactive 'wrangler deploy' (you may need to login)."
-  wrangler deploy
-fi
+npx wrangler deploy
 
 echo "Done."

@@ -99,6 +99,8 @@ cp wrangler.toml.sample wrangler.toml
 name = "cf-url-shortener"
 main = "src/index.ts"
 compatibility_date = "2025-11-02"
+workers_dev = false
+preview_urls = false
 
 kv_namespaces = [
   { binding = "LINKS", id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
@@ -128,10 +130,10 @@ persist = true
 cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
 
-再依「🔐 設定 Zero Trust」章節建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `cloudflare_secrets.json`。
+再依下方「設定 Zero Trust」步驟建立服務 Token，將 `CF-Access-Client-Id` 與 `CF-Access-Client-Secret` 等值填入 `cloudflare_secrets.json`。此檔案已由 Git 忽略；請勿提交真實憑證。
 
 ### 2-3 Zero Trust 路徑保護說明
-本專案採「Access-only」模型，Worker 本身不實作任何身份驗證。請於後續「🔐 設定 Zero Trust」章節，為 `/admin*` 與 `/api/*` 分別建立 Access 應用並以路徑強制保護。
+本專案採「Access-only」模型，Worker 本身不實作任何身份驗證。部署 Worker 前，必須為 `/admin*` 與 `/api/*` 分別建立 Access 應用並以路徑強制保護。
 
 ---
 
@@ -176,39 +178,7 @@ Resolve-DnsName s.<your-domain>
 
 ---
 
-### 5️⃣ 部署 Worker
-
-部署前會自動編譯 Tailwind CSS 並生成內嵌樣式文件：
-
-```bash
-npm run deploy
-```
-
-這個命令會執行以下步驟：
-1. 編譯 `src/styles/styles.css` → `public/styles.css`（壓縮版）
-2. 生成 `src/styles/styles-inline.ts`（內嵌到 Worker，勿手動編輯）
-3. 執行 `wrangler deploy`
-
-看到 ✅ `Deployed cf-url-shortener` 即完成。
-
-**開發模式：**
-```bash
-npm run dev
-```
-
-此命令會啟動本地開發伺服器（需要時可手動執行 `npm run build:css` 編譯樣式）。
-
-開發中也可在另一個終端視窗執行：
-
-```bash
-npm run watch:css
-```
-
-用於持續監聽樣式變更並即時輸出到 `public/styles.css`。
-
----
-
-## 🔐 設定 Zero Trust
+### 5️⃣ 設定 Zero Trust（部署前完成）
 本系統採用「Access-only 強制、Worker 無認證邏輯」的目標狀態。請在 Cloudflare Zero Trust Access 控制下依序操作：
 **服務認證**
 1. 建立服務 Token
@@ -223,7 +193,7 @@ npm run watch:css
 ```bash
 cp cloudflare_secrets.json.sample cloudflare_secrets.json
 ```
-請手動更新 `cloudflare_secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`，如需給捷徑使用可放到 `iCloud/Downloads`。
+請手動更新 `cloudflare_secrets.json` 中的 `CF-Access-Client-Id`、`CF-Access-Client-Secret`、`base_url`。若要讓捷徑讀取，請只放在你信任且有存取控制的位置。
 Shortcut 檔案仍在驗證中，下一版本會更新。
 範例
 ```json
@@ -353,6 +323,45 @@ console.log(await res.json())
 CI 環境建議：
 - 將 `CF-Access-Client-Id`、`CF-Access-Client-Secret` 以 CI Secret/變數管理（避免保存 JSON 檔）。
 - 指令可改讀取環境變數（例如 `$env:CF_ACCESS_CLIENT_ID` / `$env:CF_ACCESS_CLIENT_SECRET`）。
+
+部署前先執行 `npm run check:access`。這會對 `wrangler.toml` 中每個正式環境自訂網域，以未登入請求檢查 `/admin`，以及 `/admin/api/links` 與 `/api/links` 的 GET、POST、PATCH 是否被拒絕；若任一路徑可直接抵達 Worker、網域無法連線，或 `workers_dev`／`preview_urls` 未明確關閉，就停止部署。此檢查不會建立或修改短網址，也不能取代登入後與 Service Token 的實際授權測試。
+
+若已有本機 `wrangler.toml`，請加入 `workers_dev = false` 與 `preview_urls = false`。還要在 Cloudflare 後台核對所有額外的 Worker 網域與路由，確認沒有未受 Access 保護的入口。
+
+---
+
+### 6️⃣ 部署 Worker
+
+完成上述 Access 設定與檢查後再部署。`npm run deploy` 會編譯 Tailwind CSS 並生成內嵌樣式文件：
+
+```bash
+npm run deploy
+```
+
+這個命令會執行以下步驟：
+1. 編譯 `src/styles/styles.css` → `public/styles.css`（壓縮版）
+2. 生成 `src/styles/styles-inline.ts`（內嵌到 Worker，勿手動編輯）
+3. 執行 `npm run check:access`，未通過就停止
+4. 執行 `wrangler deploy`
+
+部署憑證可透過 `CLOUDFLARE_API_TOKEN` 環境變數提供給 Wrangler；部署指令不會將 Token 放在命令列參數。
+
+看到 ✅ `Deployed cf-url-shortener` 即完成。
+
+**開發模式：**
+```bash
+npm run dev
+```
+
+此命令會啟動本地開發伺服器（需要時可手動執行 `npm run build:css` 編譯樣式）。
+
+開發中也可在另一個終端視窗執行：
+
+```bash
+npm run watch:css
+```
+
+用於持續監聽樣式變更並即時輸出到 `public/styles.css`。
 
 ---
 

@@ -10,8 +10,9 @@
     "watch:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --watch",
     "dev": "npm run build:css && wrangler dev",
     "build": "npm run build:css && tsc --noEmit",
-    "deploy": "npm run build && wrangler deploy",
-    "ci-deploy": "npm run build && npx wrangler@latest deploy --api-token $CF_API_TOKEN",
+    "check:access": "node scripts/check-access.mjs",
+    "deploy": "npm run build && npm run check:access && node scripts/deploy.mjs",
+    "ci-deploy": "npm run build && npm run check:access && node scripts/deploy.mjs",
     "typecheck": "npm run build:css && tsc --noEmit",
     "check": "npm run build:css && npm run lint && npm run typecheck"
   },

@@ -1,6 +1,8 @@
 name = "cf-url-shortener"
 main = "src/index.ts"
 compatibility_date = "2025-11-02"
+workers_dev = false
+preview_urls = false
 
 # 透過 `wrangler kv:namespace create "LINKS"` 取得 id 後填入
 kv_namespaces = [

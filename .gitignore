@@ -9,6 +9,7 @@ src/styles/styles-inline.ts
 # Config file (contains sensitive information)
 wrangler.toml
 secrets.json
+/cloudflare_secrets.json
 
 # OS generated files
 .DS_Store
