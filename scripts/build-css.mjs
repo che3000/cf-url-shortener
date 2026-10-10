@@ -1,4 +1,4 @@
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
@@ -20,6 +20,7 @@ async function build() {
     minify: true,
   }).code.toString();
 
+  await mkdir(new URL('../public/', import.meta.url), { recursive: true });
   await writeIfChanged(output, css);
   const escaped = css.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
   await writeIfChanged(inlineOutput, `export const STYLES_CSS = \`${escaped}\`;\n`);
