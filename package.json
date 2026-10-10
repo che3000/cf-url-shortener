@@ -6,8 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "lint": "eslint --ext .ts src",
-    "build:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --minify && node ./scripts/generate-inline-css.mjs",
-    "watch:css": "tailwindcss -i ./src/styles/styles.css -o ./public/styles.css --watch",
+    "build:css": "node scripts/build-css.mjs",
+    "watch:css": "node scripts/build-css.mjs --watch",
     "dev": "npm run build:css && wrangler dev",
     "build": "npm run build:css && tsc --noEmit",
     "check:access": "node scripts/check-access.mjs",
@@ -24,13 +24,14 @@
     "@cloudflare/workers-types": "^5.20260724.1",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
-    "autoprefixer": "^10.4.21",
+    "@tailwindcss/postcss": "4.3.3",
     "eslint": "^8.57.0",
     "happy-dom": "^20.11.1",
-    "postcss": "^8.5.22",
-    "tailwindcss": "^3.4.18",
+    "lightningcss": "1.32.0",
+    "postcss": "^8.5.28",
+    "tailwindcss": "4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
-    "wrangler": "4.135.0"
+    "wrangler": "4.149.0"
   }
 }

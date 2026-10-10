@@ -12,7 +12,7 @@
 | ♻️ 軟刪除（可恢復） | 作廢不會刪除資料，可重新啟用 |
 | 📊 管理頁倒數計時 | 自動顯示剩餘時間，過期變 Expired |
 | 📎 插頁廣告中轉頁 | 可設定倒數秒數的中轉頁面（支援暫停倒數、防快速跳過） |
-| 🎨 內建 UI | 使用 Tailwind CSS v3 編譯版本，響應式設計 |
+| 🎨 內建 UI | 使用 Tailwind CSS v4 編譯版本，響應式設計 |
 | 🗄️ 無需資料庫 | 使用 Cloudflare KV 儲存資料 |
 | 📱 iPhone快速使用 | 使用 Cloudflare Service Token 與 Apple Shortcut 實現免登入即可新增客製化超連結 |
 | 🌐 自訂網域 | 預設使用 `s.<yourdomain>/xxxxx` |
@@ -54,7 +54,7 @@ cd cf-url-shortener
 npm install
 ```
 
-**注意：** 本專案採用模組化架構，使用 Tailwind CSS v3 編譯版本（非 CDN），以確保最佳效能。詳見 [Tailwind CSS 配置說明](./TAILWIND.md)。
+**注意：** 本專案採用模組化架構，使用 Tailwind CSS v4 編譯版本（非 CDN），以確保最佳效能。詳見 [Tailwind CSS 配置說明](./TAILWIND.md)。
 
 **專案結構：**
 ```
@@ -361,7 +361,7 @@ npm run dev
 npm run watch:css
 ```
 
-用於持續監聽樣式變更並即時輸出到 `public/styles.css`。
+用於持續監聽 `src/` 變更，並更新 `public/styles.css` 與內嵌樣式。
 
 ---
 
